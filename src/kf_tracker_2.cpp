@@ -1,10 +1,14 @@
 #include "kf_tracker_2/kf_tracker_2.h"
 
 /* TODO
+0. change simul map obstacle trajectory (직선으로)
 1. [Proceeding] Static/Dynamic Obstacle Filtering >> Low velocity accuracy
-2. [Proceeding] KF pos & vel publishing >> Low velocity accuracy
-3. Outside Variable Packaging
+  1.1 Euclidean clustering Voxel Grid(3d) 사용
+  1.2 Euclidean clustering Projection & map masking
+2. KF pos & vel publishing
+  2.1 KF 관련 변수 동적할당 (smart pointer 사용할것)
 */
+
 
 // RUNTIME DEBUG
 clock_t s_1, s_2, s_3, s_4, s_5;
@@ -15,11 +19,11 @@ int stateDim=4; // [x, y, v_x, v_y] //,w,h]
 int measDim=2; // [z_x, z_y, z_w, z_h]
 int ctrlDim=0;
 cv::KalmanFilter KF0(stateDim,measDim,ctrlDim,CV_32F);
-cv::KalmanFilter KF1(stateDim,measDim,ctrlDim,CV_32F);
-cv::KalmanFilter KF2(stateDim,measDim,ctrlDim,CV_32F);
-cv::KalmanFilter KF3(stateDim,measDim,ctrlDim,CV_32F);
-cv::KalmanFilter KF4(stateDim,measDim,ctrlDim,CV_32F);
-cv::KalmanFilter KF5(stateDim,measDim,ctrlDim,CV_32F);
+// cv::KalmanFilter KF1(stateDim,measDim,ctrlDim,CV_32F);
+// cv::KalmanFilter KF2(stateDim,measDim,ctrlDim,CV_32F);
+// cv::KalmanFilter KF3(stateDim,measDim,ctrlDim,CV_32F);
+// cv::KalmanFilter KF4(stateDim,measDim,ctrlDim,CV_32F);
+// cv::KalmanFilter KF5(stateDim,measDim,ctrlDim,CV_32F);
 cv::Mat state(stateDim,1,CV_32F);
 cv::Mat_<float> measurement(2,1); 
 
@@ -49,7 +53,7 @@ bool ObstacleTrack::initialize()
     if (ros::ok())
     {
         /** Initialize publisher of obstacles **/
-        nh_.param<int>("obstacle_num", obstacle_num_, 6); // maximum obstacle number is 6
+        nh_.param<int>("obstacle_num", obstacle_num_, 1); // maximum obstacle number is 6
 
         cout<<"DEBUG: obstacle_num_ = "<< obstacle_num_ <<endl;
         // Create a ROS Publishers for the state of objects (pos and vel)
@@ -259,18 +263,20 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     float dx = 1.0f;
     float dy = 1.0f;
     KF0.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
-    KF1.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
-    KF2.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
-    KF3.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
-    KF4.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
-    KF5.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
+    // KF1.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
+    // KF2.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
+    // KF3.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
+    // KF4.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
+    // KF5.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
+
+    // covariance
 
     cv::setIdentity(KF0.measurementMatrix);
-    cv::setIdentity(KF1.measurementMatrix);
-    cv::setIdentity(KF2.measurementMatrix);
-    cv::setIdentity(KF3.measurementMatrix);
-    cv::setIdentity(KF4.measurementMatrix);
-    cv::setIdentity(KF5.measurementMatrix);
+    // cv::setIdentity(KF1.measurementMatrix);
+    // cv::setIdentity(KF2.measurementMatrix);
+    // cv::setIdentity(KF3.measurementMatrix);
+    // cv::setIdentity(KF4.measurementMatrix);
+    // cv::setIdentity(KF5.measurementMatrix);
 
     // Process Noise Covariance Matrix Q
     // [ Ex 0  0    0 0    0 ]
@@ -282,19 +288,19 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     float sigmaP=0.01;
     float sigmaQ=0.1;
     setIdentity(KF0.processNoiseCov, Scalar::all(sigmaP));
-    setIdentity(KF1.processNoiseCov, Scalar::all(sigmaP));
-    setIdentity(KF2.processNoiseCov, Scalar::all(sigmaP));
-    setIdentity(KF3.processNoiseCov, Scalar::all(sigmaP));
-    setIdentity(KF4.processNoiseCov, Scalar::all(sigmaP));
-    setIdentity(KF5.processNoiseCov, Scalar::all(sigmaP));
+    // setIdentity(KF1.processNoiseCov, Scalar::all(sigmaP));
+    // setIdentity(KF2.processNoiseCov, Scalar::all(sigmaP));
+    // setIdentity(KF3.processNoiseCov, Scalar::all(sigmaP));
+    // setIdentity(KF4.processNoiseCov, Scalar::all(sigmaP));
+    // setIdentity(KF5.processNoiseCov, Scalar::all(sigmaP));
 
     // Meas noise cov matrix R
     cv::setIdentity(KF0.measurementNoiseCov, cv::Scalar(sigmaQ));//1e-1
-    cv::setIdentity(KF1.measurementNoiseCov, cv::Scalar(sigmaQ));
-    cv::setIdentity(KF2.measurementNoiseCov, cv::Scalar(sigmaQ));
-    cv::setIdentity(KF3.measurementNoiseCov, cv::Scalar(sigmaQ));
-    cv::setIdentity(KF4.measurementNoiseCov, cv::Scalar(sigmaQ));
-    cv::setIdentity(KF5.measurementNoiseCov, cv::Scalar(sigmaQ));
+    // cv::setIdentity(KF1.measurementNoiseCov, cv::Scalar(sigmaQ));
+    // cv::setIdentity(KF2.measurementNoiseCov, cv::Scalar(sigmaQ));
+    // cv::setIdentity(KF3.measurementNoiseCov, cv::Scalar(sigmaQ));
+    // cv::setIdentity(KF4.measurementNoiseCov, cv::Scalar(sigmaQ));
+    // cv::setIdentity(KF5.measurementNoiseCov, cv::Scalar(sigmaQ));
 
     /* Process the point cloud */
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -368,30 +374,30 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     KF0.statePre.at<float>(2)=0;// initial v_x
     KF0.statePre.at<float>(3)=0;// initial v_y
 
-    KF1.statePre.at<float>(0)=clusterCentroids.at(1).x;
-    KF1.statePre.at<float>(1)=clusterCentroids.at(1).y;
-    KF1.statePre.at<float>(2)=0;// initial v_x
-    KF1.statePre.at<float>(3)=0;// initial v_y
+    // KF1.statePre.at<float>(0)=clusterCentroids.at(1).x;
+    // KF1.statePre.at<float>(1)=clusterCentroids.at(1).y;
+    // KF1.statePre.at<float>(2)=0;// initial v_x
+    // KF1.statePre.at<float>(3)=0;// initial v_y
 
-    KF2.statePre.at<float>(0)=clusterCentroids.at(2).x;
-    KF2.statePre.at<float>(1)=clusterCentroids.at(2).y;
-    KF2.statePre.at<float>(2)=0;// initial v_x
-    KF2.statePre.at<float>(3)=0;// initial v_y
+    // KF2.statePre.at<float>(0)=clusterCentroids.at(2).x;
+    // KF2.statePre.at<float>(1)=clusterCentroids.at(2).y;
+    // KF2.statePre.at<float>(2)=0;// initial v_x
+    // KF2.statePre.at<float>(3)=0;// initial v_y
 
-    KF3.statePre.at<float>(0)=clusterCentroids.at(3).x;
-    KF3.statePre.at<float>(1)=clusterCentroids.at(3).y;
-    KF3.statePre.at<float>(2)=0;// initial v_x
-    KF3.statePre.at<float>(3)=0;// initial v_y
+    // KF3.statePre.at<float>(0)=clusterCentroids.at(3).x;
+    // KF3.statePre.at<float>(1)=clusterCentroids.at(3).y;
+    // KF3.statePre.at<float>(2)=0;// initial v_x
+    // KF3.statePre.at<float>(3)=0;// initial v_y
 
-    KF4.statePre.at<float>(0)=clusterCentroids.at(4).x;
-    KF4.statePre.at<float>(1)=clusterCentroids.at(4).y;
-    KF4.statePre.at<float>(2)=0;// initial v_x
-    KF4.statePre.at<float>(3)=0;// initial v_y
+    // KF4.statePre.at<float>(0)=clusterCentroids.at(4).x;
+    // KF4.statePre.at<float>(1)=clusterCentroids.at(4).y;
+    // KF4.statePre.at<float>(2)=0;// initial v_x
+    // KF4.statePre.at<float>(3)=0;// initial v_y
 
-    KF5.statePre.at<float>(0)=clusterCentroids.at(5).x;
-    KF5.statePre.at<float>(1)=clusterCentroids.at(5).y;
-    KF5.statePre.at<float>(2)=0;// initial v_x
-    KF5.statePre.at<float>(3)=0;// initial v_y
+    // KF5.statePre.at<float>(0)=clusterCentroids.at(5).x;
+    // KF5.statePre.at<float>(1)=clusterCentroids.at(5).y;
+    // KF5.statePre.at<float>(2)=0;// initial v_x
+    // KF5.statePre.at<float>(3)=0;// initial v_y
 
     firstFrame = false;
 
@@ -408,7 +414,8 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
 void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
 {
     /** 1. First predict, to update the internal statePre variable **/
-    std::vector<cv::Mat> pred{KF0.predict(),KF1.predict(),KF2.predict(),KF3.predict(),KF4.predict(),KF5.predict()};
+    // std::vector<cv::Mat> pred{KF0.predict(),KF1.predict(),KF2.predict(),KF3.predict(),KF4.predict(),KF5.predict()};
+    std::vector<cv::Mat> pred{KF0.predict()};
   
     /** 2. Get the position of the prediction **/
     std::vector<geometry_msgs::Point> KFpredictions;
@@ -500,33 +507,33 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
     // }
 
     float meas0[2]={cc[0].at(0),cc[0].at(1)};
-    float meas1[2]={cc[1].at(0),cc[1].at(1)};
-    float meas2[2]={cc[2].at(0),cc[2].at(1)};
-    float meas3[2]={cc[3].at(0),cc[3].at(1)};
-    float meas4[2]={cc[4].at(0),cc[4].at(1)};
-    float meas5[2]={cc[5].at(0),cc[5].at(1)};
+    // float meas1[2]={cc[1].at(0),cc[1].at(1)};
+    // float meas2[2]={cc[2].at(0),cc[2].at(1)};
+    // float meas3[2]={cc[3].at(0),cc[3].at(1)};
+    // float meas4[2]={cc[4].at(0),cc[4].at(1)};
+    // float meas5[2]={cc[5].at(0),cc[5].at(1)};
 
     /* The update phase */
     cv::Mat meas0Mat=cv::Mat(2,1,CV_32F,meas0);
-    cv::Mat meas1Mat=cv::Mat(2,1,CV_32F,meas1);
-    cv::Mat meas2Mat=cv::Mat(2,1,CV_32F,meas2);
-    cv::Mat meas3Mat=cv::Mat(2,1,CV_32F,meas3);
-    cv::Mat meas4Mat=cv::Mat(2,1,CV_32F,meas4);
-    cv::Mat meas5Mat=cv::Mat(2,1,CV_32F,meas5);
+    // cv::Mat meas1Mat=cv::Mat(2,1,CV_32F,meas1);
+    // cv::Mat meas2Mat=cv::Mat(2,1,CV_32F,meas2);
+    // cv::Mat meas3Mat=cv::Mat(2,1,CV_32F,meas3);
+    // cv::Mat meas4Mat=cv::Mat(2,1,CV_32F,meas4);
+    // cv::Mat meas5Mat=cv::Mat(2,1,CV_32F,meas5);
 
     // update the predicted state from the measurement
     // if (!(meas0Mat.at<float>(0,0)==0.0f || meas0Mat.at<float>(1,0)==0.0f))
         cv::Mat estimated0 = KF0.correct(meas0Mat);
     // if (!(meas1[0]==0.0f || meas1[1]==0.0f))
-        cv::Mat estimated1 = KF1.correct(meas1Mat);
-    // if (!(meas2[0]==0.0f || meas2[1]==0.0f))
-        cv::Mat estimated2 = KF2.correct(meas2Mat);
-    // if (!(meas3[0]==0.0f || meas3[1]==0.0f))
-        cv::Mat estimated3 = KF3.correct(meas3Mat);
-    // if (!(meas4[0]==0.0f || meas4[1]==0.0f))
-        cv::Mat estimated4 = KF4.correct(meas4Mat);
-    // if (!(meas5[0]==0.0f || meas5[1]==0.0f))
-        cv::Mat estimated5 = KF5.correct(meas5Mat);
+    //     cv::Mat estimated1 = KF1.correct(meas1Mat);
+    // // if (!(meas2[0]==0.0f || meas2[1]==0.0f))
+    //     cv::Mat estimated2 = KF2.correct(meas2Mat);
+    // // if (!(meas3[0]==0.0f || meas3[1]==0.0f))
+    //     cv::Mat estimated3 = KF3.correct(meas3Mat);
+    // // if (!(meas4[0]==0.0f || meas4[1]==0.0f))
+    //     cv::Mat estimated4 = KF4.correct(meas4Mat);
+    // // if (!(meas5[0]==0.0f || meas5[1]==0.0f))
+    //     cv::Mat estimated5 = KF5.correct(meas5Mat);
 
     // std::vector<geometry_msgs::Point> KFcorrections;
     // KFcorrections.reserve(obstacle_num_);

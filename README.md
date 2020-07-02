@@ -35,9 +35,16 @@ The input point-clouds can be from:
 4. Any other data source that produces point clouds
 
 ### TODO
-1. Object State Publishing
-2. Clustering option Optimization (most of Runtime; 80~90ms)
-3. KF (many noise now)
+
+0. change simul map obstacle trajectory (직선으로)
+1. Euclidean Clustering Optimization (most of Runtime; 80~90ms)
+  1.1 Euclidean clustering Voxel Grid(3d) 사용
+  1.2 Euclidean clustering Projection & map masking
+2. Static/Dynamic Obstacle Filtering >> Low velocity accuracy
+  2.1 map masking or velocity filtering
+3. KF pos & vel publishing (many noise now)
+  3.1 KF transition matrix covariance 추가
+  3.2 KF 관련 변수 동적할당 (smart pointer 사용할것)
 
 ## Citing
 

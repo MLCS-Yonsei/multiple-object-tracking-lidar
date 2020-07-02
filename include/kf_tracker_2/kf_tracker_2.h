@@ -69,6 +69,7 @@ public:
     ros::Publisher objID_pub; // objID (KF)
     ros::Publisher markerPub; // obstacle pose visualization (KF)
     ros::Subscriber input_sub;
+    
 
 private:
 

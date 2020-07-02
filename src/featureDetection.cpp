@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string.h>
-#include "kf_tracker/featureDetection.h"
-#include "kf_tracker/CKalmanFilter.h"
+#include "kf_tracker_2/featureDetection.h"
+#include "kf_tracker_2/CKalmanFilter.h"
 
 using namespace cv;
 

@@ -18,7 +18,7 @@ PCL based ROS package to Detect/Cluster --> Track --> Classify static and dynami
 Follow the steps below to use this (`kf_tracker_2`) package:
 ``` bash
 cd ~/catkin_ws/src
-git clone https://
+git clone https://github.com/MLCS-Yonsei/multiple-object-tracking-lidar.git
 cd ..
 catkin_make --only-pkg-with-deps kf_tracker_2
 source ~/catkin_ws/devel/setup.bash

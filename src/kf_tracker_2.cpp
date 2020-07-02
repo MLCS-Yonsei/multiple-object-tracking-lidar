@@ -1,10 +1,11 @@
 #include "kf_tracker_2/kf_tracker_2.h"
 
 /* TODO
-0. change simul map obstacle trajectory (직선으로)
-1. [Proceeding] Static/Dynamic Obstacle Filtering >> Low velocity accuracy
-  1.1 Euclidean clustering Voxel Grid(3d) 사용
-  1.2 Euclidean clustering Projection & map masking
+0. [done] change simul map obstacle trajectory (직선으로)
+1. Static/Dynamic Obstacle Filtering >> Low velocity accuracy
+  1.1 [done] Euclidean clustering Voxel Grid(3d) 사용
+  1.2 map masking
+  1.3 Euclidean clustering Projection(2d)
 2. KF pos & vel publishing
   2.1 KF 관련 변수 동적할당 (smart pointer 사용할것)
 */
@@ -31,9 +32,9 @@ std::vector<geometry_msgs::Point> prevClusterCenters;
 std::vector<int> objID;// Output of the data association using KF
 
 int obstacle_num_;
-float ClusterTolerance_=0.3; // (m) default 0.3
+float ClusterTolerance_=0.15; // (m) default 0.3
 int MinClusterSize_=10; // default 10
-int MaxClusterSize_=600; // default 600
+int MaxClusterSize_=300; // default 600
 bool firstFrame = true;
 
 
@@ -113,13 +114,18 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     else
     { 
         /* Process the point cloud */
-        pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud (new pcl::PointCloud<pcl::PointXYZ>);
-        pcl::PointCloud<pcl::PointXYZ>::Ptr clustered_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::PointCloud<pcl::PointXYZ> input_cloud;
+        pcl::fromROSMsg (*input, input_cloud);
 
-        /** Creating the KdTree from input point cloud **/
+        pcl::VoxelGrid<pcl::PointXYZ> vg;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+        vg.setInputCloud (input_cloud.makeShared());
+        vg.setLeafSize (0.05f, 0.05f, 0.05f); // Leaf size 5cm
+        vg.filter (*cloud_filtered);
+
+        /** Creating the KdTree from voxel point cloud **/
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-        pcl::fromROSMsg (*input, *input_cloud);
-        tree->setInputCloud (input_cloud);
+        tree->setInputCloud (cloud_filtered);
 
         /* Here we are creating a vector of PointIndices, which contains the actual index
         * information in a vector<int>. The indices of each detected cluster are saved here.
@@ -132,7 +138,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ec.setMinClusterSize (MinClusterSize_);
         ec.setMaxClusterSize (MaxClusterSize_);
         ec.setSearchMethod (tree);
-        ec.setInputCloud (input_cloud);
+        ec.setInputCloud (cloud_filtered);
 
         s_1 = clock();
         /** Extract the clusters out of pc and save indices in cluster_indices.**/
@@ -163,13 +169,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
             for(pit = it->indices.begin(); pit != it->indices.end(); pit++) 
             {
-                cloud_cluster->points.push_back(input_cloud->points[*pit]);
+                cloud_cluster->points.push_back(cloud_filtered->points[*pit]);
 
-                x+=input_cloud->points[*pit].x;
-                y+=input_cloud->points[*pit].y;
+                x+=cloud_filtered->points[*pit].x;
+                y+=cloud_filtered->points[*pit].y;
                 numPts++;
 
-                //dist_this_point = pcl::geometry::distance(input_cloud->points[*pit], origin);
+                //dist_this_point = pcl::geometry::distance(cloud_filtered->points[*pit], origin);
                 //mindist_this_cluster = std::min(dist_this_point, mindist_this_cluster);
             }
             pcl::PointXYZ centroid;
@@ -304,7 +310,6 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
 
     /* Process the point cloud */
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr clustered_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
     /* Creating the KdTree from input point cloud*/
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);

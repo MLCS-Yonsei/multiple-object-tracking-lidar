@@ -17,20 +17,25 @@
 #include <opencv2/video/video.hpp>
 #include "opencv2/video/tracking.hpp"
 
-// ros msgs & pcl
+// ros msgs
 #include <ros/ros.h>
 #include <ros/console.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-#include "pcl_ros/point_cloud.h"
+
 #include <geometry_msgs/Point.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Int32MultiArray.h>
 #include <sensor_msgs/PointCloud2.h>
+
+// pcl 
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include "pcl_ros/point_cloud.h"
 #include <pcl/common/geometry.h>
+
+#include <pcl/ModelCoefficients.h>
+#include <pcl/io/pcd_io.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/features/normal_3d.h>

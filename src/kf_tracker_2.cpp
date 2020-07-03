@@ -32,31 +32,34 @@ std::vector<geometry_msgs::Point> prevClusterCenters;
 std::vector<int> objID;// Output of the data association using KF
 
 int obstacle_num_;
-float ClusterTolerance_=0.15; // (m) default 0.3
-int MinClusterSize_=10; // default 10
-int MaxClusterSize_=300; // default 600
+float ClusterTolerance_; // (m) default 0.3
+int MinClusterSize_; // default 10
+int MaxClusterSize_; // default 600
+float VoxelLeafSize_;
 bool firstFrame = true;
 
 
 ObstacleTrack::ObstacleTrack()
 {
-    // this->reconfigure_server_.reset();
     ;
 }
 
 ObstacleTrack::~ObstacleTrack()
 {
-    clearDataMember();
+    nh_.deleteParam("obstacle_num");
+    nh_.deleteParam("cluster_tolerance");
+    nh_.deleteParam("min_cluster_size");
+    nh_.deleteParam("max_cluster_size");
+    nh_.deleteParam("voxel_leaf_size");
 }
 
 bool ObstacleTrack::initialize()
 { 
     if (ros::ok())
     {
-        /** Initialize publisher of obstacles **/
-        nh_.param<int>("obstacle_num", obstacle_num_, 1); // maximum obstacle number is 6
+        /** update pcl, KF parameters **/
+        updateParam();
 
-        cout<<"DEBUG: obstacle_num_ = "<< obstacle_num_ <<endl;
         // Create a ROS Publishers for the state of objects (pos and vel)
         // objState0_pub = nh_.advertise<geometry_msgs::Twist> ("obj_0",1);
         // objState1_pub = nh_.advertise<geometry_msgs::Twist> ("obj_1",1);
@@ -93,6 +96,18 @@ bool ObstacleTrack::initialize()
     }
 }
 
+void ObstacleTrack::updateParam()
+{
+    nh_.param<int>("/kf_tracker_2/obstacle_num", obstacle_num_, 1); // # of maximum observable obstacle 
+    nh_.param<float>("/kf_tracker_2/cluster_tolerance", ClusterTolerance_, 0.15); // pcl extraction tolerance
+    nh_.param<int>("/kf_tracker_2/min_cluster_size", MinClusterSize_, 10);
+    nh_.param<int>("/kf_tracker_2/max_cluster_size", MaxClusterSize_, 200);
+    nh_.param<float>("/kf_tracker_2/voxel_leaf_size", VoxelLeafSize_, 0.05);
+    cout<<"[Debug] min_cluster_size: "<<MinClusterSize_<<endl;
+    cout<<"[Debug] max_cluster_size: "<<MaxClusterSize_<<endl;
+    cout<<"[Debug] voxel_leaf_size: "<<VoxelLeafSize_<<endl;
+}
+
 void ObstacleTrack::spinNode()
 {
   ros::spin();
@@ -100,7 +115,7 @@ void ObstacleTrack::spinNode()
 
 void ObstacleTrack::clearDataMember()
 {
-    ;
+    nh_.deleteParam("obstacle_num");
 }
 
 void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
@@ -117,10 +132,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
 
+        /* Voxel Down sampling */
         pcl::VoxelGrid<pcl::PointXYZ> vg;
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
         vg.setInputCloud (input_cloud.makeShared());
-        vg.setLeafSize (0.05f, 0.05f, 0.05f); // Leaf size 5cm
+        vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
         vg.filter (*cloud_filtered);
 
         /** Creating the KdTree from voxel point cloud **/
@@ -140,11 +156,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ec.setSearchMethod (tree);
         ec.setInputCloud (cloud_filtered);
 
-        s_1 = clock();
+        // s_1 = clock();
         /** Extract the clusters out of pc and save indices in cluster_indices.**/
         ec.extract (cluster_indices); // most of Runtime are used from this step.
-        e_1 = (clock()-s_1)*(1e-3);
-        cout<<"[RUNTIME] extraction : "<<e_1<<" ms"<<endl;
+        // e_1 = (clock()-s_1)*(1e-3);
+        // cout<<"[RUNTIME] extraction : "<<e_1<<" ms"<<endl;
         
         /* To separate each cluster out of the vector<PointIndices> we have to 
         * iterate through cluster_indices, create a new PointCloud for each 

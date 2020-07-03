@@ -66,6 +66,8 @@ public:
 
     bool initialize();
 
+    void updateParam();
+
     // ros::Publisher objState0_pub, objState1_pub, objState2_pub, objState3_pub, objState4_pub, objState5_pub; 
     
     // ros::Publisher cluster0_pub, cluster1_pub, cluster2_pub, cluster3_pub, cluster4_pub, cluster5_pub;

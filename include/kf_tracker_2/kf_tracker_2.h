@@ -24,7 +24,10 @@
 #include <geometry_msgs/Point.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Int32MultiArray.h>
+#include <std_msgs/Int8.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <nav_msgs/OccupancyGrid.h>
+#include <nav_msgs/MapMetaData.h>
 
 // pcl 
 #include <pcl_conversions/pcl_conversions.h>
@@ -38,6 +41,7 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/passthrough.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/sample_consensus/method_types.h>
@@ -69,14 +73,26 @@ public:
     void updateParam();
 
     // ros::Publisher objState0_pub, objState1_pub, objState2_pub, objState3_pub, objState4_pub, objState5_pub; 
-    
-    // ros::Publisher cluster0_pub, cluster1_pub, cluster2_pub, cluster3_pub, cluster4_pub, cluster5_pub;
-    // ros::Publisher cc_pos; // cluster centroid pose (non KF)
-    // ros::Publisher cckf_pos; // cluster centroid pose (KF)
+    ros::Publisher debug_msg;
     ros::Publisher objID_pub; // objID (KF)
     ros::Publisher markerPub; // obstacle pose visualization (KF)
     ros::Subscriber input_sub;
+    ros::Subscriber map_sub;
     
+    // RUNTIME DEBUG
+    clock_t s_1, s_2, s_3, s_4, s_5;
+    clock_t e_1, e_2, e_3, e_4, e_5;
+    
+    std::vector<geometry_msgs::Point> prevClusterCenters;
+    std::vector<int> objID;// Output of the data association using KF
+    nav_msgs::OccupancyGrid map_copy;
+    
+    int obstacle_num_;
+    float ClusterTolerance_; // (m) default 0.3
+    int MinClusterSize_; // default 10
+    int MaxClusterSize_; // default 600
+    float VoxelLeafSize_;
+    bool firstFrame = true;
 
 private:
 
@@ -88,9 +104,15 @@ private:
 
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input);
 
+    void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
+
     void publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters);
 
     void publishObjID();
+
+    pcl::PointCloud<pcl::PointXYZ> removeStatic( \
+        pcl::PointCloud<pcl::PointXYZ> input_cloud, \
+        pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
 
     void initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& input);
 

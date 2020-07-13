@@ -4,11 +4,16 @@
 0. [done] change simul map obstacle trajectory (직선으로)
 1. Static/Dynamic Obstacle Filtering >> Low velocity accuracy
   1.1 [done] Euclidean clustering Voxel Grid(3d) 사용
-  1.2 [done]map masking
+  1.2 map masking
   1.3 Euclidean clustering Projection(2d)
 2. KF pos & vel publishing
   2.1 KF 관련 변수 동적할당 (smart pointer 사용할것)
 */
+
+
+// RUNTIME DEBUG
+clock_t s_1, s_2, s_3, s_4, s_5;
+clock_t e_1, e_2, e_3, e_4, e_5;
 
 /* KF init */
 int stateDim=4; // [x, y, v_x, v_y] //,w,h]
@@ -22,6 +27,18 @@ cv::KalmanFilter KF0(stateDim,measDim,ctrlDim,CV_32F);
 // cv::KalmanFilter KF5(stateDim,measDim,ctrlDim,CV_32F);
 cv::Mat state(stateDim,1,CV_32F);
 cv::Mat_<float> measurement(2,1); 
+
+std::vector<geometry_msgs::Point> prevClusterCenters;
+std::vector<int> objID;// Output of the data association using KF
+nav_msgs::OccupancyGrid map_copy;
+
+int obstacle_num_;
+float ClusterTolerance_; // (m) default 0.3
+int MinClusterSize_; // default 10
+int MaxClusterSize_; // default 600
+float VoxelLeafSize_;
+bool firstFrame = true;
+
 
 ObstacleTrack::ObstacleTrack()
 {
@@ -53,7 +70,12 @@ bool ObstacleTrack::initialize()
         // objState5_pub = nh_.advertise<geometry_msgs::Twist> ("obj_5",1);
         
         // Create a ROS publisher for the output point cloud
-        debug_msg = nh_.advertise<sensor_msgs::PointCloud2>("debug_msg", 1);
+        // cluster0_pub = nh_.advertise<sensor_msgs::PointCloud2>("cluster_0", 1);
+        // cluster1_pub = nh_.advertise<sensor_msgs::PointCloud2>("cluster_1", 1);
+        // cluster2_pub = nh_.advertise<sensor_msgs::PointCloud2>("cluster_2", 1);
+        // cluster3_pub = nh_.advertise<sensor_msgs::PointCloud2>("cluster_3", 1);
+        // cluster4_pub = nh_.advertise<sensor_msgs::PointCloud2>("cluster_4", 1);
+        // cluster5_pub = nh_.advertise<sensor_msgs::PointCloud2>("cluster_5", 1);
 
         // Create a ROS Publishers for the objID of objects
         objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1);
@@ -105,23 +127,55 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
  
     else
     { 
+        
         /** Process the point cloud **/
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
 
+        s_1 = clock();
+        /* Removing static obstacles*/
+
+        // removeStatic();
+
+        pcl::PointCloud<pcl::PointXYZ> cloud_pre_process;
+        for (int it=0; it < input_cloud.points.size(); it++)
+        {
+            if (!(-6 <input_cloud.points[it].x  && input_cloud.points[it].x < -4 && \
+            -7 < input_cloud.points[it].y  && input_cloud.points[it].y < -4) && \
+            !(4 <input_cloud.points[it].x  && input_cloud.points[it].x < 6 && \
+            -7 < input_cloud.points[it].y  && input_cloud.points[it].y < -4) && \
+            !(-6 <input_cloud.points[it].x  && input_cloud.points[it].x < -4 && \
+            -4 < input_cloud.points[it].y  && input_cloud.points[it].y < -1) && \
+            !(4 <input_cloud.points[it].x  && input_cloud.points[it].x < 6 && \
+            -4 < input_cloud.points[it].y  && input_cloud.points[it].y < -1) && \
+            !(-6 <input_cloud.points[it].x  && input_cloud.points[it].x < -4 && \
+            -1 < input_cloud.points[it].y  && input_cloud.points[it].y < 2) && \
+            !(4 <input_cloud.points[it].x  && input_cloud.points[it].x < 6 && \
+            -1 < input_cloud.points[it].y  && input_cloud.points[it].y < 2) && \
+            !(-6 <input_cloud.points[it].x  && input_cloud.points[it].x < -4 && \
+            -1 < input_cloud.points[it].y  && input_cloud.points[it].y < 2) && \
+            !(4 <input_cloud.points[it].x  && input_cloud.points[it].x < 6 && \
+            -1 < input_cloud.points[it].y  && input_cloud.points[it].y < 2) && \
+            !(-6 <input_cloud.points[it].x  && input_cloud.points[it].x < -4 && \
+            2 < input_cloud.points[it].y  && input_cloud.points[it].y < 7) && \
+            !(4 <input_cloud.points[it].x  && input_cloud.points[it].x < 6 && \
+            2 < input_cloud.points[it].y  && input_cloud.points[it].y < 7) )
+            {
+                cloud_pre_process.push_back(input_cloud.points[it]);          
+            }
+        }
+
+        e_1 = clock();
+        cout<<"[DEBUG] Runtime: "<<(e_1-s_1)<<endl;
+        pcl::io::savePCDFile<pcl::PointXYZ>("tabletop_passthrough.pcd", cloud_pre_process); //Default binary mode save
+
+       
         /* Voxel Down sampling */
         pcl::VoxelGrid<pcl::PointXYZ> vg;
-        pcl::PointCloud<pcl::PointXYZ> cloud_1;
-        vg.setInputCloud (input_cloud.makeShared());
-        vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
-        vg.filter (cloud_1);
-
-        /* Removing static obstacles*/
-        pcl::PointCloud<pcl::PointXYZ> cloud_2;
-        cloud_2 = removeStatic(cloud_1, cloud_2);
-
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-        *cloud_filtered = cloud_2;
+        vg.setInputCloud (cloud_pre_process.makeShared());
+        vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
+        vg.filter (*cloud_filtered);
 
         /** Creating the KdTree from voxel point cloud **/
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
@@ -221,7 +275,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
     map_copy = map_msg;
-    cout<<"[DEBUG] map copied."<<endl;
 }
 
 void ObstacleTrack::publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters)
@@ -264,67 +317,13 @@ void ObstacleTrack::publishObjID()
     objID_pub.publish(obj_id);
 }
 
-pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::PointXYZ> input_cloud, pcl::PointCloud<pcl::PointXYZ> cloud_pre_process)
-{
-    int width_i = map_copy.info.width; // width (integer) for grid calculation
-    float width = map_copy.info.width; // width (float) for division calculation
-    float height = map_copy.info.height;
-    float resolution = map_copy.info.resolution;
-    float pos_x = map_copy.info.origin.position.x;
-    float pos_y = map_copy.info.origin.position.y;
-
-    /* Make lists of occupied grids coordinate */
-    std::vector<float> x_min; // lower boundary x of occupied grid
-    std::vector<float> x_max; // higher boundary x of occupied grid
-    std::vector<float> y_min; // lower boundary y of occupied grid
-    std::vector<float> y_max; // higher boundary y of occupied grid
-    int count_occupied = 0;
-    float clearance = resolution * 0.5;
-
-    for (int i=0; i<map_copy.data.size(); i++) 
-    {
-        int cell = map_copy.data[i]; 
-        if (cell > 60) // all cell with occupancy larger than 60.0
-        { 
-            x_min.push_back((i%width_i)*resolution + pos_x - clearance);
-            x_max.push_back((i%width_i)*resolution  + pos_x + resolution + clearance);
-            y_min.push_back((i/width_i)*resolution + pos_y - clearance);
-            y_max.push_back((i/width_i)*resolution  + pos_y + resolution + clearance);
-            count_occupied++;
-        }
-    }
-
-    /* Removal pointclouds of occupied grids */
-    for (int j=0; j<input_cloud.size(); j++) 
-    {
-        
-        for (int k=0; k<count_occupied; k++) 
-        {
-            if (x_min[k] < input_cloud.points[j].x && input_cloud.points[j].x < x_max[k] && \
-            y_min[k] < input_cloud.points[j].y && input_cloud.points[j].y < y_max[k])
-            {
-                break;
-            }
-            else 
-            {
-                if (k==count_occupied-1)
-                {
-                    cloud_pre_process.push_back(input_cloud.points[j]);   
-                }
-            }
-        }
-    }
-
-    return cloud_pre_process;
-}
-
 void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& input)
 {
     // cout<<"DEBUG: run before initKalmanFilters"<<endl;
     /** Initialize 6 Kalman Filters; Assuming 6 max objects in the dataset.  **/
     // Could be made generic by creating a Kalman Filter only when a new object is detected  
-    float dvx = 0.01f; 
-    float dvy = 0.01f; 
+    float dvx = 0.01f; //1.0
+    float dvy = 0.01f;//1.0
     float dx = 1.0f;
     float dy = 1.0f;
     KF0.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
@@ -348,10 +347,10 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     // [ 0  Ey 0    0 0    0 ]
     // [ 0  0  Ev_x 0 0    0 ]
     // [ 0  0  0    1 Ev_y 0 ]
-    // [ 0  0  0    0 1    Ew ]
-    // [ 0  0  0    0 0    Eh ]
-    float sigmaP=0.0001;
-    float sigmaQ=0.001;
+    //// [ 0  0  0    0 1    Ew ]
+    //// [ 0  0  0    0 0    Eh ]
+    float sigmaP=0.01;
+    float sigmaQ=0.1;
     setIdentity(KF0.processNoiseCov, Scalar::all(sigmaP));
     // setIdentity(KF1.processNoiseCov, Scalar::all(sigmaP));
     // setIdentity(KF2.processNoiseCov, Scalar::all(sigmaP));
@@ -366,9 +365,6 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     // cv::setIdentity(KF3.measurementNoiseCov, cv::Scalar(sigmaQ));
     // cv::setIdentity(KF4.measurementNoiseCov, cv::Scalar(sigmaQ));
     // cv::setIdentity(KF5.measurementNoiseCov, cv::Scalar(sigmaQ));
-
-
-
 
     /* Process the point cloud */
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -590,7 +586,7 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
 
     // update the predicted state from the measurement
     // if (!(meas0Mat.at<float>(0,0)==0.0f || meas0Mat.at<float>(1,0)==0.0f))
-    cv::Mat estimated0(KF0.correct(meas0Mat));
+        cv::Mat estimated0 = KF0.correct(meas0Mat);
     // if (!(meas1[0]==0.0f || meas1[1]==0.0f))
     //     cv::Mat estimated1 = KF1.correct(meas1Mat);
     // // if (!(meas2[0]==0.0f || meas2[1]==0.0f))
@@ -602,21 +598,24 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
     // // if (!(meas5[0]==0.0f || meas5[1]==0.0f))
     //     cv::Mat estimated5 = KF5.correct(meas5Mat);
 
-
     // std::vector<geometry_msgs::Point> KFcorrections;
-    // for (auto it=estimated0.begin(); it!=estimated0.end(); it++)
+    // KFcorrections.reserve(obstacle_num_);
+    // int i=0;
+    // for (auto it=pred.begin(); it!=pred.end(); it++)
     // {
     //     // float vel = (std::sqrt(pow((*it).at<float>(2), 2) + pow((*it).at<float>(3), 2))) * (1e7);
     //     // if (vel < 20) continue; // if static obstacle, ignore.
+
     //     geometry_msgs::Point pt;
     //     pt.x=(*it).at<float>(0);
     //     pt.y=(*it).at<float>(1);
     //     pt.z=(*it).at<float>(2);
-    //     KFcorrections.push_back(pt); 
+
+    //     KFpredictions.push_back(pt); 
     // }
 
     // cout<<"[DEBUG] vel_0 : "<<(std::sqrt(pow(estimated0.at<float>(2), 2) + pow(estimated0.at<float>(3), 2))*(1e3))<<endl;
-    cout<<"[DEBUG] vel : ["<<(estimated0.at<float>(2)*(1e6))<<", "<<(estimated0.at<float>(3)*(1e6))<<"]"<<endl;
+    // cout<<"[DEBUG] vel : ["<<(estimated0.at<float>(2)*(1e6))<<", "<<(estimated0.at<float>(3)*(1e6))<<"]"<<endl;
     // cout<<"[DEBUG] vel_1 : "<<(std::sqrt(pow(estimated1.at<float>(2), 2) + pow(estimated1.at<float>(3), 2))*(1e3))<<endl;
     // cout<<"[DEBUG] vel_2 : "<<(std::sqrt(pow(estimated2.at<float>(2), 2) + pow(estimated2.at<float>(3), 2))*(1e3))<<endl;
     // cout<<"[DEBUG] vel_3 : "<<(std::sqrt(pow(estimated3.at<float>(2), 2) + pow(estimated3.at<float>(3), 2))*(1e3))<<endl;
@@ -629,6 +628,7 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
     /* 5. Publish the object IDs */
     publishObjID();
 
+    // cout<<"DONE KF_TRACKER"<<endl;  
 }
 
 std::pair<int,int> ObstacleTrack::findIndexOfMin(std::vector<std::vector<float>> distMat)

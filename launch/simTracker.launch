@@ -12,9 +12,9 @@
   <node pkg='kf_tracker_2' type='kf_tracker_2_node' name='kf_tracker_2'>
     <param name='obstacle_num' value='1'/>
     <param name='cluster_tolerance' value='0.15'/>
-    <param name='min_cluster_size' value='10'/>
-    <param name='max_cluster_size' value='200'/>
-    <param name='voxel_leaf_size' value='0.05'/>
+    <param name='min_cluster_size' value='5'/>
+    <param name='max_cluster_size' value='300'/>
+    <param name='voxel_leaf_size' value='0.1'/>
 
     <remap from='input_pointcloud' to='/scan_matched_points2' />
     <!--remap from='input_pointcloud' to='/velodyne_points_front' /-->

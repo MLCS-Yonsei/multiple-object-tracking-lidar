@@ -323,8 +323,8 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     // cout<<"DEBUG: run before initKalmanFilters"<<endl;
     /** Initialize 6 Kalman Filters; Assuming 6 max objects in the dataset.  **/
     // Could be made generic by creating a Kalman Filter only when a new object is detected  
-    float dvx = 0.01f; 
-    float dvy = 0.01f; 
+    float dvx = 0.01f; //1.0
+    float dvy = 0.01f;//1.0
     float dx = 1.0f;
     float dy = 1.0f;
     KF0.transitionMatrix = (Mat_<float>(4, 4) << dx,0,1,0,   0,dy,0,1,  0,0,dvx,0,  0,0,0,dvy);
@@ -348,10 +348,10 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     // [ 0  Ey 0    0 0    0 ]
     // [ 0  0  Ev_x 0 0    0 ]
     // [ 0  0  0    1 Ev_y 0 ]
-    // [ 0  0  0    0 1    Ew ]
-    // [ 0  0  0    0 0    Eh ]
-    float sigmaP=0.0001;
-    float sigmaQ=0.001;
+    //// [ 0  0  0    0 1    Ew ]
+    //// [ 0  0  0    0 0    Eh ]
+    float sigmaP=0.01;
+    float sigmaQ=0.1;
     setIdentity(KF0.processNoiseCov, Scalar::all(sigmaP));
     // setIdentity(KF1.processNoiseCov, Scalar::all(sigmaP));
     // setIdentity(KF2.processNoiseCov, Scalar::all(sigmaP));
@@ -366,9 +366,6 @@ void ObstacleTrack::initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& in
     // cv::setIdentity(KF3.measurementNoiseCov, cv::Scalar(sigmaQ));
     // cv::setIdentity(KF4.measurementNoiseCov, cv::Scalar(sigmaQ));
     // cv::setIdentity(KF5.measurementNoiseCov, cv::Scalar(sigmaQ));
-
-
-
 
     /* Process the point cloud */
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -590,7 +587,7 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
 
     // update the predicted state from the measurement
     // if (!(meas0Mat.at<float>(0,0)==0.0f || meas0Mat.at<float>(1,0)==0.0f))
-    cv::Mat estimated0(KF0.correct(meas0Mat));
+        cv::Mat estimated0 = KF0.correct(meas0Mat);
     // if (!(meas1[0]==0.0f || meas1[1]==0.0f))
     //     cv::Mat estimated1 = KF1.correct(meas1Mat);
     // // if (!(meas2[0]==0.0f || meas2[1]==0.0f))
@@ -604,19 +601,23 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
 
 
     // std::vector<geometry_msgs::Point> KFcorrections;
+    // KFcorrections.reserve(obstacle_num_);
+    // int i=0;
     // for (auto it=estimated0.begin(); it!=estimated0.end(); it++)
     // {
     //     // float vel = (std::sqrt(pow((*it).at<float>(2), 2) + pow((*it).at<float>(3), 2))) * (1e7);
     //     // if (vel < 20) continue; // if static obstacle, ignore.
+
     //     geometry_msgs::Point pt;
     //     pt.x=(*it).at<float>(0);
     //     pt.y=(*it).at<float>(1);
     //     pt.z=(*it).at<float>(2);
-    //     KFcorrections.push_back(pt); 
+
+    //     KFpredictions.push_back(pt); 
     // }
 
     // cout<<"[DEBUG] vel_0 : "<<(std::sqrt(pow(estimated0.at<float>(2), 2) + pow(estimated0.at<float>(3), 2))*(1e3))<<endl;
-    cout<<"[DEBUG] vel : ["<<(estimated0.at<float>(2)*(1e6))<<", "<<(estimated0.at<float>(3)*(1e6))<<"]"<<endl;
+    // cout<<"[DEBUG] vel : ["<<(estimated0.at<float>(2)*(1e6))<<", "<<(estimated0.at<float>(3)*(1e6))<<"]"<<endl;
     // cout<<"[DEBUG] vel_1 : "<<(std::sqrt(pow(estimated1.at<float>(2), 2) + pow(estimated1.at<float>(3), 2))*(1e3))<<endl;
     // cout<<"[DEBUG] vel_2 : "<<(std::sqrt(pow(estimated2.at<float>(2), 2) + pow(estimated2.at<float>(3), 2))*(1e3))<<endl;
     // cout<<"[DEBUG] vel_3 : "<<(std::sqrt(pow(estimated3.at<float>(2), 2) + pow(estimated3.at<float>(3), 2))*(1e3))<<endl;
@@ -629,6 +630,7 @@ void ObstacleTrack::KFT(const std::vector<geometry_msgs::Point> clusterCenters)
     /* 5. Publish the object IDs */
     publishObjID();
 
+    // cout<<"DONE KF_TRACKER"<<endl;  
 }
 
 std::pair<int,int> ObstacleTrack::findIndexOfMin(std::vector<std::vector<float>> distMat)

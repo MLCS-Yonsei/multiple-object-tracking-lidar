@@ -27,7 +27,7 @@ bool ObstacleTrack::initialize()
         updateParam();
 
         // Create a ROS Publishers 
-        objState0_pub = nh_.advertise<geometry_msgs::Twist> ("obj_0",1); // the state of objects (pos and vel)
+        obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("obstacle",1); // the state of objects (pos and vel)
         debug_pub = nh_.advertise<sensor_msgs::PointCloud2>("debug_msg", 1); // debugging
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("viz", 1); // rviz visualization
@@ -170,8 +170,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         predicted_centroids.push_back(predicted_centroid);
 
         /* Publish state & rviz marker */
-        // objState0_pub.publish(state0);
-        // markerPub.publish();
+        // publishObstacles();
+        // publishMarkers();
     }
 } 
 
@@ -179,6 +179,55 @@ void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
     map_copy = map_msg;
     cout<<"[DEBUG] map copied."<<endl;
+}
+
+void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids)
+{
+    // costmap_converter::ObstacleArrayMsg obstacle_array;
+    // costmap_converter::ObstacleMsg obstacle;
+
+    // obstacle_array.header.stamp.secs = predicted_centroids[-1].header.stamp/1;
+    // obstacle_array.header.stamp.nsecs = predicted_centroids[-1].header.stamp%1;
+    // obstacle_array.header.frame_id = "odom";
+
+    // // Add point obstacle
+    // obstacle_array.obstacles.append(obstacle)
+    // obstacle_array.obstacles[0].id = 1;
+
+    // geometry_msgs::Point32[] points;
+    // obstacle_array.obstacles[0].polygon.points = points;
+    // obstacle_array.obstacles[0].polygon.points[0].x = 0;
+    // obstacle_array.obstacles[0].polygon.points[0].y = 0;
+    // obstacle_array.obstacles[0].polygon.points[0].z = 0;
+   
+    // float dx; float dy;
+    // float dt = predicted_centroids[-1].intensity - predicted_centroids[-2].intensity;
+    // dx = (predicted_centroids[-1].x - predicted_centroids[-2].x)/dt;
+    // dy = (predicted_centroids[-1].y - predicted_centroids[-2].y)/dt;
+
+    // float yaw;
+    // yaw = cmath::atan2(dy, dx);
+    // q = tf.transformations.quaternion_from_euler(0,0,yaw);
+
+    // obstacle_array.obstacles[0].orientation = Quaternion(*q);
+    // obstacle_array.obstacles[0].velocities.twist.linear.x = dx;
+    // obstacle_array.obstacles[0].velocities.twist.linear.y = dy;
+    // obstacle_array.obstacles[0].velocities.twist.linear.z = 0;
+    // obstacle_array.obstacles[0].velocities.twist.angular.x = 0;
+    // obstacle_array.obstacles[0].velocities.twist.angular.y = 0;
+    // obstacle_array.obstacles[0].velocities.twist.angular.z = 0;
+
+    // if (dy >= 0)
+    // {
+    //     obstacle_array.obstacles[0].polygon.points[0].y = y_0 + (dy*t)%range_y;
+    // }
+    // else
+    // {
+    //     obstacle_array.obstacles[0].polygon.points[0].y = y_0 + (dy*t)%range_y - range_y;
+    // }
+    
+    // obstacle_pub.publish(obstacle_array);
+    ;
 }
 
 void ObstacleTrack::publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters)

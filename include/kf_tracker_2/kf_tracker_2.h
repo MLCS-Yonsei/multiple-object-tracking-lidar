@@ -11,13 +11,23 @@
 #include <ros/console.h>
 
 #include <geometry_msgs/Point.h>
-#include <geometry_msgs/Twist.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Int32MultiArray.h>
 #include <std_msgs/Int8.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <nav_msgs/MapMetaData.h>
+
+// obstacle ros msgs
+#include <costmap_converter/ObstacleArrayMsg.h>
+#include <costmap_converter/ObstacleMsg.h>
+#include <geometry_msgs/Polygon.h>
+#include <geometry_msgs/Point32.h>
+#include <std_msgs/Float64.h>
+#include <std_msgs/Int64.h>
+#include <geometry_msgs/Quaternion.h>
+#include <geometry_msgs/TwistWithCovariance.h>
+
 
 // pcl 
 #include <pcl_conversions/pcl_conversions.h>
@@ -61,7 +71,7 @@ public:
 
     void updateParam();
 
-    ros::Publisher objState0_pub; // obstacle pos&vel
+    ros::Publisher obstacle_pub; // obstacle pos&vel
     ros::Publisher debug_pub;  // msg for debugging
     ros::Publisher objID_pub; // objID (
     ros::Publisher marker_pub; // obstacle pose visualization (KF)
@@ -92,6 +102,8 @@ private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input);
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
+
+    void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids);
 
     void publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters);
 

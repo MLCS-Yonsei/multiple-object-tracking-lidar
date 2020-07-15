@@ -1,7 +1,10 @@
 #include "kf_tracker_2/kf_tracker_2.h"
 
 /* TODO
-
+1. GP parameter setup
+2. Static obstacle pointcloud removal 이전에 예외처리 추가
+(slam이 충분하지 않아서 dynamic까지 전부 지워버리면 에러남)
+3. GP 추가
 */
 
 
@@ -121,25 +124,27 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid; // (t) timestep cluster centroid
 
         it = cluster_indices.begin();
-        float x=0.0; float y=0.0;
-        int numPts=0;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-        for(pit = it->indices.begin(); pit != it->indices.end(); pit++) 
         {
-            cloud_cluster->points.push_back(cloud_filtered->points[*pit]);
+            float x=0.0; float y=0.0;
+            int numPts=0;
+            pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
+            for(pit = it->indices.begin(); pit != it->indices.end(); pit++) 
+            {
+                cloud_cluster->points.push_back(cloud_filtered->points[*pit]);
 
-            x+=cloud_filtered->points[*pit].x;
-            y+=cloud_filtered->points[*pit].y;
-            numPts++;
+                x+=cloud_filtered->points[*pit].x;
+                y+=cloud_filtered->points[*pit].y;
+                numPts++;
 
-            //dist_this_point = pcl::geometry::distance(cloud_filtered->points[*pit], origin);
-            //mindist_this_cluster = std::min(dist_this_point, mindist_this_cluster);
+                //dist_this_point = pcl::geometry::distance(cloud_filtered->points[*pit], origin);
+                //mindist_this_cluster = std::min(dist_this_point, mindist_this_cluster);
+            }
+            centroid.x=x/numPts;
+            centroid.y=y/numPts;
+            centroid.z=0.0;
+            centroid.intensity=input->header.stamp.toSec(); // used intensity slot(float) for time with GP
+            cluster_vec = cloud_cluster;
         }
-        centroid.x=x/numPts;
-        centroid.y=y/numPts;
-        centroid.z=0.0;
-        centroid.intensity=input->header.stamp.sec + (1e-9)*input->header.stamp.nsec; // used intensity slot(float) for time with GP
-        cluster_vec = cloud_cluster;
 
         // Ensure at least obstacle_num_ clusters exist to publish (later clusters may be empty) 
         // while (cluster_vec.size() < obstacle_num_)

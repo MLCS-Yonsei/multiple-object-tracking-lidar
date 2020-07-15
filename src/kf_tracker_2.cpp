@@ -117,57 +117,59 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         std::vector<int>::const_iterator pit;
 
         // Cluster Centroid 
-        std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr > cluster_vec; // Vector of cluster pointclouds 
-        std::vector<pcl::PointXYZI> centroids; // (t) timestep cluster centroids
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster_vec (new pcl::PointCloud<pcl::PointXYZ>);; // Vector of cluster pointclouds 
+        pcl::PointXYZI centroid; // (t) timestep cluster centroid
 
-        for(it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
+        float x=0.0; float y=0.0;
+        int numPts=0;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
+        for(pit = it->indices.begin(); pit != it->indices.end(); pit++) 
         {
-            float x=0.0; float y=0.0;
-            int numPts=0;
-            pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-            for(pit = it->indices.begin(); pit != it->indices.end(); pit++) 
-            {
-                cloud_cluster->points.push_back(cloud_filtered->points[*pit]);
+            cloud_cluster->points.push_back(cloud_filtered->points[*pit]);
 
-                x+=cloud_filtered->points[*pit].x;
-                y+=cloud_filtered->points[*pit].y;
-                numPts++;
+            x+=cloud_filtered->points[*pit].x;
+            y+=cloud_filtered->points[*pit].y;
+            numPts++;
 
-                //dist_this_point = pcl::geometry::distance(cloud_filtered->points[*pit], origin);
-                //mindist_this_cluster = std::min(dist_this_point, mindist_this_cluster);
-            }
-
-            pcl::PointXYZI centroid;
-            centroid.x=x/numPts;
-            centroid.y=y/numPts;
-            centroid.z=0.0;
-            centroid.intensity=input->header.stamp.sec + (1e-8)*input->header.stamp.nsec; // used intensity slot for time with GP
-
-            cluster_vec.push_back(cloud_cluster);
-            centroids.push_back(centroid); // Get the centroid of the cluster
+            //dist_this_point = pcl::geometry::distance(cloud_filtered->points[*pit], origin);
+            //mindist_this_cluster = std::min(dist_this_point, mindist_this_cluster);
         }
+        centroid.x=x/numPts;
+        centroid.y=y/numPts;
+        centroid.z=0.0;
+        centroid.intensity=input->header.stamp.sec + (1e-8)*input->header.stamp.nsec; // used intensity slot(float) for time with GP
+        cluster_vec = cloud_cluster;
+
         // Ensure at least obstacle_num_ clusters exist to publish (later clusters may be empty) 
-        while (cluster_vec.size() < obstacle_num_){
-            pcl::PointCloud<pcl::PointXYZ>::Ptr empty_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-            empty_cluster->points.push_back(pcl::PointXYZ(0,0,0));
-            cluster_vec.push_back(empty_cluster);
-        }
-        while (centroids.size() < obstacle_num_)
+        // while (cluster_vec.size() < obstacle_num_)
+        // {
+        //     pcl::PointCloud<pcl::PointXYZ>::Ptr empty_cluster (new pcl::PointCloud<pcl::PointXYZ>);
+        //     empty_cluster->points.push_back(pcl::PointXYZ(0,0,0));
+        //     cluster_vec = empty_cluster;
+        // }
+        // while (centroid.size() < obstacle_num_)
+        // {
+        //     pcl::PointXYZI centroid;
+        //     centroid.x=0.0;
+        //     centroid.y=0.0;
+        //     centroid.z=0.0;
+        //     centroid.intensity=input->header.stamp.sec + (1e-8)*input->header.stamp.nsec;
+        // }
+
+        /* Predict with GP 
+        predicted_centroid: i, predicted centroid from GP
+        predicted_centroids: (i-10)~(i), predicted centroid stack from GP
+        centroids: i, observed centroid */
+        pcl::PointXYZI predicted_centroid;
+        predicted_centroid = GP(predicted_centroids, centroid);
+               
+        if (predicted_centroids.size() > 10)
         {
-            pcl::PointXYZI centroid;
-            centroid.x=0.0;
-            centroid.y=0.0;
-            centroid.z=0.0;
-            centroid.intensity=input->header.stamp.sec + (1e-8)*input->header.stamp.nsec;
-            
-            centroids.push_back(centroid);
+            predicted_centroids.erase(predicted_centroids.begin());
         }
+        predicted_centroids.push_back(predicted_centroid);
 
-        // Predict with GP 
-        // predicted_centroid = GP(clusterCentroids, centroids);
-        // clusterCentroids.push_back(predicted_centroid);
-
-        // publishing
+        /* Publish state & rviz marker */
         // objState0_pub.publish(state0);
         // markerPub.publish();
     }
@@ -273,3 +275,8 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     return cloud_pre_process;
 }
 
+pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> predicted_centroids, pcl::PointXYZI centroid)
+{
+    pcl::PointXYZI temp;
+    return temp;
+}

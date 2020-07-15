@@ -72,7 +72,7 @@ public:
     clock_t s_1, s_2, s_3, s_4, s_5;
     clock_t e_1, e_2, e_3, e_4, e_5;
     
-    std::vector<pcl::PointXYZI> clusterCentroids; // ~(t-1) cluster Centers stack
+    std::vector<pcl::PointXYZI> predicted_centroids; // ~(t-1) cluster Centers stack
     std::vector<int> objID;
     nav_msgs::OccupancyGrid map_copy;
     
@@ -102,6 +102,6 @@ private:
         pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
 
     pcl::PointXYZI GP( \
-        std::vector<pcl::PointXYZI> clusterCentroids, \
-        std::vector<pcl::PointXYZI>);
+        std::vector<pcl::PointXYZI> predicted_centroids, \
+        pcl::PointXYZI centroid);
 };

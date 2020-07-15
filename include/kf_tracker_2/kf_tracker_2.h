@@ -6,22 +6,12 @@
 #include <time.h> // We don't need it for run. It's for Runtime check
 #include <cmath>
 
-// Filter
-#include "kf_tracker_2/featureDetection.h"
-#include "kf_tracker_2/CKalmanFilter.h"
-
-// opencv
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/video/video.hpp>
-#include "opencv2/video/tracking.hpp"
-
 // ros msgs
 #include <ros/ros.h>
 #include <ros/console.h>
 
 #include <geometry_msgs/Point.h>
+#include <geometry_msgs/Twist.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Int32MultiArray.h>
 #include <std_msgs/Int8.h>
@@ -58,7 +48,6 @@
 
 //*****************************************************************
 using namespace std;
-using namespace cv;
 
 class ObstacleTrack
 {
@@ -72,19 +61,19 @@ public:
 
     void updateParam();
 
-    // ros::Publisher objState0_pub, objState1_pub, objState2_pub, objState3_pub, objState4_pub, objState5_pub; 
-    ros::Publisher debug_msg;
-    ros::Publisher objID_pub; // objID (KF)
-    ros::Publisher markerPub; // obstacle pose visualization (KF)
-    ros::Subscriber input_sub;
-    ros::Subscriber map_sub;
+    ros::Publisher objState0_pub; // obstacle pos&vel
+    ros::Publisher debug_pub;  // msg for debugging
+    ros::Publisher objID_pub; // objID (
+    ros::Publisher marker_pub; // obstacle pose visualization (KF)
+    ros::Subscriber input_sub; // input Pointclouds 
+    ros::Subscriber map_sub; // Occupied grid map
     
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5;
     clock_t e_1, e_2, e_3, e_4, e_5;
     
-    std::vector<geometry_msgs::Point> prevClusterCenters;
-    std::vector<int> objID;// Output of the data association using KF
+    std::vector<pcl::PointXYZI> clusterCentroids; // ~(t-1) cluster Centers stack
+    std::vector<int> objID;
     nav_msgs::OccupancyGrid map_copy;
     
     int obstacle_num_;
@@ -92,15 +81,13 @@ public:
     int MinClusterSize_; // default 10
     int MaxClusterSize_; // default 600
     float VoxelLeafSize_;
-    bool firstFrame = true;
+    bool firstFrame = false;
 
 private:
 
     ros::NodeHandle nh_;
 
     void spinNode();
-    
-    void clearDataMember();
 
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input);
 
@@ -114,14 +101,7 @@ private:
         pcl::PointCloud<pcl::PointXYZ> input_cloud, \
         pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
 
-    void initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& input);
-
-    void KFT(const std::vector<geometry_msgs::Point> cc);
-
-    std::pair<int,int> findIndexOfMin(std::vector<std::vector<float>> distMat);
-
-    // calculate euclidean distance of two points
-    double euclidean_distance(geometry_msgs::Point& p1, geometry_msgs::Point& p2);
-
-
+    pcl::PointXYZI GP( \
+        std::vector<pcl::PointXYZI> clusterCentroids, \
+        std::vector<pcl::PointXYZI>);
 };

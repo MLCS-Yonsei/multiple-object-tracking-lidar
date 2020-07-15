@@ -117,9 +117,10 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         std::vector<int>::const_iterator pit;
 
         // Cluster Centroid 
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster_vec (new pcl::PointCloud<pcl::PointXYZ>);; // Vector of cluster pointclouds 
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster_vec; // Vector of cluster pointclouds 
         pcl::PointXYZI centroid; // (t) timestep cluster centroid
 
+        it = cluster_indices.begin();
         float x=0.0; float y=0.0;
         int numPts=0;
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
@@ -137,7 +138,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         centroid.x=x/numPts;
         centroid.y=y/numPts;
         centroid.z=0.0;
-        centroid.intensity=input->header.stamp.sec + (1e-8)*input->header.stamp.nsec; // used intensity slot(float) for time with GP
+        centroid.intensity=input->header.stamp.sec + (1e-9)*input->header.stamp.nsec; // used intensity slot(float) for time with GP
         cluster_vec = cloud_cluster;
 
         // Ensure at least obstacle_num_ clusters exist to publish (later clusters may be empty) 
@@ -178,7 +179,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
     map_copy = map_msg;
-    cout<<"[DEBUG] map copied."<<endl;
 }
 
 void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids)
@@ -193,6 +193,7 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     // // Add point obstacle
     // obstacle_array.obstacles.append(obstacle)
     // obstacle_array.obstacles[0].id = 1;
+    // obstacle_array.obstacles[0].radius = pointcloud range;
 
     // geometry_msgs::Point32[] points;
     // obstacle_array.obstacles[0].polygon.points = points;
@@ -209,6 +210,7 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     // yaw = cmath::atan2(dy, dx);
     // q = tf.transformations.quaternion_from_euler(0,0,yaw);
 
+    // obstacle orientation & velocity
     // obstacle_array.obstacles[0].orientation = Quaternion(*q);
     // obstacle_array.obstacles[0].velocities.twist.linear.x = dx;
     // obstacle_array.obstacles[0].velocities.twist.linear.y = dy;
@@ -327,5 +329,5 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
 pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> predicted_centroids, pcl::PointXYZI centroid)
 {
     pcl::PointXYZI temp;
-    return temp;
+    return centroid;
 }

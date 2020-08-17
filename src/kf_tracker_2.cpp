@@ -77,6 +77,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     else
     { 
         // Process the point cloud 
+        // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
 
@@ -84,7 +85,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::VoxelGrid<pcl::PointXYZ> vg;
         pcl::PointCloud<pcl::PointXYZ> cloud_1;
         vg.setInputCloud (input_cloud.makeShared());
-        vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
+        vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 0.1m
         vg.filter (cloud_1);
 
         // 2D Projection
@@ -93,18 +94,17 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             cloud_1.points[l].z=0.0;
         }
 
-        // Voxel Down sampling 
+        // Voxel Down sampling
         pcl::VoxelGrid<pcl::PointXYZ> vg2;
         pcl::PointCloud<pcl::PointXYZ> cloud_2;
         vg2.setInputCloud (cloud_1.makeShared());
-        vg2.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
+        vg2.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 0.1m
         vg2.filter (cloud_2);
 
-        // Removing static obstacles
+        // Remove static obstacles from occupied grid map msg
         pcl::PointCloud<pcl::PointXYZ> cloud_3;
-        cloud_3 = removeStatic(cloud_2, cloud_3);
-
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+        cloud_3 = removeStatic(cloud_2, cloud_3);
         *cloud_filtered = cloud_3;
 
         // Creating the KdTree from voxel point cloud 
@@ -186,13 +186,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI predicted_centroid;
         predicted_centroid = GP(centroids, centroid);
 
-        if (centroids.size() >= 10)
+        if (centroids.size() >= 10) // centroids array update
         {
             centroids.erase(centroids.begin());
         }
         centroids.push_back(centroid);
 
-        if (predicted_centroids.size() >= 2)
+        if (predicted_centroids.size() >= 2) // centroids array(from GP) update
         {
             predicted_centroids.erase(centroids.begin());
         }
@@ -324,7 +324,7 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     int count_occupied = 0; // number of occupied
     float clearance = resolution * 0.5; // clearance of occupied grid for pointcloud pose error
 
-    s_6 = clock();
+    // get coordinate range of occupied cell from map msg 
     for (int i=0; i<map_copy.data.size(); i++) 
     {
         int cell = map_copy.data[i]; 
@@ -337,14 +337,10 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
             count_occupied++;
         }
     }
-    e_6 = clock();
-    cout<<"[Static_map_check] "<<((e_6-s_6)*(1e-3))<<endl;
 
-
-    // Removal pointclouds of occupied grids 
+    // select pointclouds not above occupied cell(static cell)
     for (const auto& point: input_cloud.points)
     {
-        
         for (int k=0; k<count_occupied; k++) 
         {
             if (x_min[k] < point.x && point.x < x_max[k] && \

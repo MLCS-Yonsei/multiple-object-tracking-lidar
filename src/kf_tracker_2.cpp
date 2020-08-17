@@ -341,15 +341,14 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     cout<<"[Static_map_check] "<<((e_6-s_6)*(1e-3))<<endl;
 
 
-    s_7 = clock();
     // Removal pointclouds of occupied grids 
-    for (int j=0; j<input_cloud.size(); j++) 
+    for (const auto& point: input_cloud.points)
     {
         
         for (int k=0; k<count_occupied; k++) 
         {
-            if (x_min[k] < input_cloud.points[j].x && input_cloud.points[j].x < x_max[k] && \
-            y_min[k] < input_cloud.points[j].y && input_cloud.points[j].y < y_max[k])
+            if (x_min[k] < point.x && point.x < x_max[k] && \
+            y_min[k] < point.y && point.y < y_max[k])
             {
                 break;
             }
@@ -357,13 +356,11 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
             {
                 if (k==count_occupied-1) // leave only points that are not in the occupied range
                 {
-                    cloud_pre_process.push_back(input_cloud.points[j]);   
+                    cloud_pre_process.push_back(point);   
                 }
             }
         }
     }
-    e_7 = clock();
-    cout<<"[Static_map_check] "<<((e_7-s_7)*(1e-3))<<endl;
 
     return cloud_pre_process;
 }

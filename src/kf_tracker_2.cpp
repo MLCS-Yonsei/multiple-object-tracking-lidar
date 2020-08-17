@@ -1,9 +1,8 @@
 #include "kf_tracker_2/kf_tracker_2.h"
 
 /* TODO
-1. GP parameter setup
 2. Static obstacle pointcloud removal 이전에 예외처리 추가
-(slam이 충분하지 않아서 dynamic까지 전부 지워버리면 에러남)
+(slam이 충분하지 않아서 dynamic까지 전부 지워버리면 에러나는듯?)
 3. GP 추가
 */
 
@@ -34,6 +33,11 @@ bool ObstacleTrack::initialize()
         debug_pub = nh_.advertise<sensor_msgs::PointCloud2>("debug_msg", 1); // debugging
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("viz", 1); // rviz visualization
+
+        // debug for pcl
+        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud1", 1);
+        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud2", 1);
+        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud3", 1);
 
         // Initialize Subscriber for input Pointcloud2  
         input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
@@ -83,12 +87,25 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
         vg.filter (cloud_1);
 
-        // Removing static obstacles
+        // 2D Projection
+        for(int l=0; l<cloud_1.points.size(); l++)
+        {
+            cloud_1.points[l].z=0.0;
+        }
+
+        // Voxel Down sampling 
+        pcl::VoxelGrid<pcl::PointXYZ> vg2;
         pcl::PointCloud<pcl::PointXYZ> cloud_2;
-        cloud_2 = removeStatic(cloud_1, cloud_2);
+        vg2.setInputCloud (cloud_1.makeShared());
+        vg2.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 10cm
+        vg2.filter (cloud_2);
+
+        // Removing static obstacles
+        pcl::PointCloud<pcl::PointXYZ> cloud_3;
+        cloud_3 = removeStatic(cloud_2, cloud_3);
 
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-        *cloud_filtered = cloud_2;
+        *cloud_filtered = cloud_3;
 
         // Creating the KdTree from voxel point cloud 
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
@@ -164,14 +181,20 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
         /* Predict with GP 
         predicted_centroid: i, predicted centroid from GP
-        predicted_centroids: (i-10)~(i), predicted centroid stack from GP
-        centroids: i, observed centroid */
+        centroids: (i-10)~(i), predicted centroid stack from GP
+        centroid: i, observed centroid */
         pcl::PointXYZI predicted_centroid;
-        predicted_centroid = GP(predicted_centroids, centroid);
-               
-        if (predicted_centroids.size() > 10)
+        predicted_centroid = GP(centroids, centroid);
+
+        if (centroids.size() >= 10)
         {
-            predicted_centroids.erase(predicted_centroids.begin());
+            centroids.erase(centroids.begin());
+        }
+        centroids.push_back(centroid);
+
+        if (predicted_centroids.size() >= 2)
+        {
+            predicted_centroids.erase(centroids.begin());
         }
         predicted_centroids.push_back(predicted_centroid);
 
@@ -188,41 +211,49 @@ void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 
 void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids)
 {
-    // costmap_converter::ObstacleArrayMsg obstacle_array;
-    // costmap_converter::ObstacleMsg obstacle;
+    costmap_converter::ObstacleArrayMsg obstacle_array;
+    costmap_converter::ObstacleMsg obstacle;
 
-    // obstacle_array.header.stamp.secs = predicted_centroids[-1].header.stamp/1;
-    // obstacle_array.header.stamp.nsecs = predicted_centroids[-1].header.stamp%1;
-    // obstacle_array.header.frame_id = "odom";
+    // ObstacleArray header
+    obstacle_array.header.stamp = ros::Time::now();
+    obstacle_array.header.frame_id = "odom";
 
-    // // Add point obstacle
-    // obstacle_array.obstacles.append(obstacle)
-    // obstacle_array.obstacles[0].id = 1;
-    // obstacle_array.obstacles[0].radius = pointcloud range;
+    obstacle_array.obstacles[0].id = 1;
+    // obstacle_array.obstacles[0].radius = ; //pointcloud range
+    obstacle_array.obstacles[0].header.stamp = ros::Time::now();
 
+    // velocity
+    float dx; float dy;
+    float dt = predicted_centroids[1].intensity - predicted_centroids[1].intensity;
+    dx = (predicted_centroids[1].x - predicted_centroids[0].x)/dt;
+    dy = (predicted_centroids[1].y - predicted_centroids[0].y)/dt;
+
+    obstacle_array.obstacles[0].velocities.twist.linear.x = dx;
+    obstacle_array.obstacles[0].velocities.twist.linear.y = dy;
+    obstacle_array.obstacles[0].velocities.twist.linear.z = 0;
+    obstacle_array.obstacles[0].velocities.twist.angular.x = 0;
+    obstacle_array.obstacles[0].velocities.twist.angular.y = 0;
+    obstacle_array.obstacles[0].velocities.twist.angular.z = 0;
+
+    obstacle_array.obstacles[0].velocities.covariance[0] = .1;
+    obstacle_array.obstacles[0].velocities.covariance[7] = .1;
+    obstacle_array.obstacles[0].velocities.covariance[14] = 1e9;
+    obstacle_array.obstacles[0].velocities.covariance[21] = 1e9;
+    obstacle_array.obstacles[0].velocities.covariance[28] = 1e9;
+    obstacle_array.obstacles[0].velocities.covariance[35] = .1;
+
+    // orientation
+    // float yaw;
+    // yaw = cmath::atan2(dy, dx);
+    // q = tf.transformations.quaternion_from_euler(0,0,yaw);
+    // obstacle_array.obstacles[0].orientation = Quaternion(*q);
+
+    // Polgon of obstacle
     // geometry_msgs::Point32[] points;
     // obstacle_array.obstacles[0].polygon.points = points;
     // obstacle_array.obstacles[0].polygon.points[0].x = 0;
     // obstacle_array.obstacles[0].polygon.points[0].y = 0;
     // obstacle_array.obstacles[0].polygon.points[0].z = 0;
-   
-    // float dx; float dy;
-    // float dt = predicted_centroids[-1].intensity - predicted_centroids[-2].intensity;
-    // dx = (predicted_centroids[-1].x - predicted_centroids[-2].x)/dt;
-    // dy = (predicted_centroids[-1].y - predicted_centroids[-2].y)/dt;
-
-    // float yaw;
-    // yaw = cmath::atan2(dy, dx);
-    // q = tf.transformations.quaternion_from_euler(0,0,yaw);
-
-    // obstacle orientation & velocity
-    // obstacle_array.obstacles[0].orientation = Quaternion(*q);
-    // obstacle_array.obstacles[0].velocities.twist.linear.x = dx;
-    // obstacle_array.obstacles[0].velocities.twist.linear.y = dy;
-    // obstacle_array.obstacles[0].velocities.twist.linear.z = 0;
-    // obstacle_array.obstacles[0].velocities.twist.angular.x = 0;
-    // obstacle_array.obstacles[0].velocities.twist.angular.y = 0;
-    // obstacle_array.obstacles[0].velocities.twist.angular.z = 0;
 
     // if (dy >= 0)
     // {
@@ -232,9 +263,8 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     // {
     //     obstacle_array.obstacles[0].polygon.points[0].y = y_0 + (dy*t)%range_y - range_y;
     // }
-    
+
     // obstacle_pub.publish(obstacle_array);
-    ;
 }
 
 void ObstacleTrack::publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters)
@@ -283,7 +313,7 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     float width = map_copy.info.width; // width (float) for division calculation
     float height = map_copy.info.height;
     float resolution = map_copy.info.resolution;
-    float pos_x = map_copy.info.origin.position.x;
+    float pos_x = map_copy.info.origin.position.x; // origin of map
     float pos_y = map_copy.info.origin.position.y;
 
     /* Make lists of occupied grids coordinate */
@@ -291,9 +321,10 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     std::vector<float> x_max; // higher boundary x of occupied grid
     std::vector<float> y_min; // lower boundary y of occupied grid
     std::vector<float> y_max; // higher boundary y of occupied grid
-    int count_occupied = 0;
-    float clearance = resolution * 0.5;
+    int count_occupied = 0; // number of occupied
+    float clearance = resolution * 0.5; // clearance of occupied grid for pointcloud pose error
 
+    s_6 = clock();
     for (int i=0; i<map_copy.data.size(); i++) 
     {
         int cell = map_copy.data[i]; 
@@ -306,8 +337,12 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
             count_occupied++;
         }
     }
+    e_6 = clock();
+    cout<<"[Static_map_check] "<<((e_6-s_6)*(1e-3))<<endl;
 
-    /* Removal pointclouds of occupied grids */
+
+    s_7 = clock();
+    // Removal pointclouds of occupied grids 
     for (int j=0; j<input_cloud.size(); j++) 
     {
         
@@ -320,13 +355,15 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
             }
             else 
             {
-                if (k==count_occupied-1)
+                if (k==count_occupied-1) // leave only points that are not in the occupied range
                 {
                     cloud_pre_process.push_back(input_cloud.points[j]);   
                 }
             }
         }
     }
+    e_7 = clock();
+    cout<<"[Static_map_check] "<<((e_7-s_7)*(1e-3))<<endl;
 
     return cloud_pre_process;
 }

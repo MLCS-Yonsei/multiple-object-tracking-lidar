@@ -21,10 +21,14 @@
 // obstacle ros msgs
 #include <costmap_converter/ObstacleArrayMsg.h>
 #include <costmap_converter/ObstacleMsg.h>
+#include <lmpcc_msgs/lmpcc_obstacle_array.h>
+#include <lmpcc_msgs/lmpcc_obstacle.h>
 #include <geometry_msgs/Polygon.h>
 #include <geometry_msgs/Point32.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Int64.h>
+#include <geometry_msgs/Pose.h>
+#include <geometry_msgs/Twist.h>
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/TwistWithCovariance.h>
 
@@ -77,12 +81,18 @@ public:
     ros::Publisher marker_pub; // obstacle pose visualization (KF)
     ros::Subscriber input_sub; // input Pointclouds 
     ros::Subscriber map_sub; // Occupied grid map
+
+    // debug
+    ros::Publisher pc1;
+    ros::Publisher pc2;
+    ros::Publisher pc3;
     
     // RUNTIME DEBUG
-    clock_t s_1, s_2, s_3, s_4, s_5;
-    clock_t e_1, e_2, e_3, e_4, e_5;
+    clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
+    clock_t e_1, e_2, e_3, e_4, e_5, e_6, e_7;
     
-    std::vector<pcl::PointXYZI> predicted_centroids; // ~(t-1) cluster Centers stack
+    std::vector<pcl::PointXYZI> centroids; // t~(t-10) cluster Centers stack
+    std::vector<pcl::PointXYZI> predicted_centroids; // t~(t-1) cluster Centers stack (GP prediction)
     std::vector<int> objID;
     nav_msgs::OccupancyGrid map_copy;
     
@@ -103,7 +113,7 @@ private:
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
 
-    void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids);
+    void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroid);
 
     void publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters);
 

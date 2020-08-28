@@ -5,6 +5,7 @@
 #include <iterator>
 #include <time.h> // We don't need it for run. It's for Runtime check
 #include <cmath>
+#include <Eigen/Dense>
 
 // ros msgs
 #include <ros/ros.h>
@@ -62,6 +63,7 @@
 
 //*****************************************************************
 using namespace std;
+using namespace Eigen;
 
 class ObstacleTrack
 {
@@ -123,7 +125,15 @@ private:
         pcl::PointCloud<pcl::PointXYZ> input_cloud, \
         pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
 
+    // pcl::PointXYZI getCentroid( \
+    //     std::vector<pcl::PointIndices> cluster_indices, \
+    //     const PointCloudConstPtr &cloud_filtered, \
+    //     const PointCloud2ConstPtr &input);
+
     pcl::PointXYZI GP( \
         std::vector<pcl::PointXYZI> predicted_centroids, \
         pcl::PointXYZI centroid);
+
+    float euc_dist(Vector3d P1, Vector3d P2);
+
 };

@@ -76,6 +76,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
  
     else
     { 
+        s_1 = clock();
+
         // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
@@ -85,11 +87,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::VoxelGrid<pcl::PointXYZ> vg;
         pcl::PointCloud<pcl::PointXYZ> cloud_1;
         vg.setInputCloud (input_cloud.makeShared());
-        vg.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 0.1m
+        vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
         vg.filter (cloud_1);
 
         // 2D Projection
-        for(int l=0; l<cloud_1.points.size(); l++)
+        for(int l=0; l!=cloud_1.points.size(); l++)
         {
             cloud_1.points[l].z=0.0;
         }
@@ -98,7 +100,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::VoxelGrid<pcl::PointXYZ> vg2;
         pcl::PointCloud<pcl::PointXYZ> cloud_2;
         vg2.setInputCloud (cloud_1.makeShared());
-        vg2.setLeafSize (VoxelLeafSize_, VoxelLeafSize_, VoxelLeafSize_); // Leaf size 0.1m
+        vg2.setLeafSize (0.5*VoxelLeafSize_, 0.5*VoxelLeafSize_, 0.1*VoxelLeafSize_); // Leaf size 0.1m
         vg2.filter (cloud_2);
 
         // Remove static obstacles from occupied grid map msg
@@ -106,6 +108,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
         cloud_3 = removeStatic(cloud_2, cloud_3);
         *cloud_filtered = cloud_3;
+
+        sensor_msgs::PointCloud2 cloud_filtered_ros;
+        pcl::toROSMsg(*cloud_filtered, cloud_filtered_ros);
+        cloud_filtered_ros.header.frame_id = "map";
+        pc1.publish(cloud_filtered_ros);
 
         // Creating the KdTree from voxel point cloud 
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
@@ -126,64 +133,118 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // Extract the clusters out of pc and save indices in cluster_indices.
         ec.extract (cluster_indices); // most of Runtime are used from this step.
 
+        // pcl::PointXYZI centroid;
+        // centroid = getCentroid(cluster_indices, *cloud_filtered, *input);
+
+        //////////////////////////////////////////////////////////////////////
         // To separate each cluster out of the vector<PointIndices> we have to 
         // iterate through cluster_indices, create a new PointCloud for each 
         // entry and write all points of the current cluster in the PointCloud. 
-
-        // pcl::PointXYZ origin (0,0,0);
-        // float mindist_this_cluster = 1000;
-        // float dist_this_point = 1000;
         std::vector<pcl::PointIndices>::const_iterator it;
         std::vector<int>::const_iterator pit;
 
-        // Cluster Centroid 
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster_vec; // Vector of cluster pointclouds 
-        pcl::PointXYZI centroid; // (t) timestep cluster centroid
-
-        it = cluster_indices.begin();
+        pcl::PointXYZ centroid; // (t) timestep cluster centroid (얘도 원래 vector나 스마트포인터로 해야함)
+        it = cluster_indices.begin(); // 원래 object가 여러개 잡혀서 iterator로 돌려야하나, 현재는 하나만 찾도록 해둠. 원래 for문이 들어갈 자리라 중괄호 남겨둠
         {
-            float x=0.0; float y=0.0;
-            int numPts=0;
-            pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-            for(pit = it->indices.begin(); pit != it->indices.end(); pit++) 
+            // make distance triangular metrix from euclidean distance
+            Vector3d Pi; 
+            Vector3d Pj; 
+            Vector3d Pk; 
+
+            Vector3d Vij; // vector between Pi ~ Pj
+            Vector3d Po(0,0,0);
+
+            // 1. get Pi, Pj
+            float dist_max=-1;
+            for(int i=0; i!=it->indices.size(); i++)
             {
-                cloud_cluster->points.push_back(cloud_filtered->points[*pit]);
+                for(int j=i+1; j!=it->indices.size(); j++)
+                {
+                    float dist;     
 
-                x+=cloud_filtered->points[*pit].x;
-                y+=cloud_filtered->points[*pit].y;
-                numPts++;
+                    Vector3d P1; 
+                    Vector3d P2;     
+                    pit = it->indices.begin()+i;              
+                    P1(0) = cloud_filtered->points[*pit].x;
+                    P1(1) = cloud_filtered->points[*pit].y;
+                    P1(2) = cloud_filtered->points[*pit].z;
+                    pit = it->indices.begin()+j;
+                    P2(0) = cloud_filtered->points[*pit].x;
+                    P2(1) = cloud_filtered->points[*pit].y;
+                    P2(2) = cloud_filtered->points[*pit].z;
 
-                //dist_this_point = pcl::geometry::distance(cloud_filtered->points[*pit], origin);
-                //mindist_this_cluster = std::min(dist_this_point, mindist_this_cluster);
+                    dist = euc_dist(P1, P2);
+                    if (dist > dist_max)
+                    {
+                        Pi = P1;
+                        Pj = P2;
+                        Vij(0) = (P2(1)-P1(1))/(P2(0)-P1(0));
+                        Vij(1) = -1;
+                        Vij(2) = Vij(0)*(-P1(0))+P1(1);
+                        dist_max = dist;
+                    }
+                }
             }
-            centroid.x=x/numPts;
-            centroid.y=y/numPts;
-            centroid.z=0.0;
-            centroid.intensity=input->header.stamp.toSec(); // used intensity slot(float) for time with GP
-            cluster_vec = cloud_cluster;
-        }
 
-        // Ensure at least obstacle_num_ clusters exist to publish (later clusters may be empty) 
-        // while (cluster_vec.size() < obstacle_num_)
-        // {
-        //     pcl::PointCloud<pcl::PointXYZ>::Ptr empty_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-        //     empty_cluster->points.push_back(pcl::PointXYZ(0,0,0));
-        //     cluster_vec = empty_cluster;
-        // }
-        // while (centroid.size() < obstacle_num_)
-        // {
-        //     pcl::PointXYZI centroid;
-        //     centroid.x=0.0;
-        //     centroid.y=0.0;
-        //     centroid.z=0.0;
-        //     centroid.intensity=input->header.stamp.sec + (1e-8)*input->header.stamp.nsec;
-        // }
+            // 2. get Pk 
+            dist_max = 0;
+            for(int k=0; k!=it->indices.size(); k++)
+            {
+                float dist;
+
+                Vector3d P3;
+                pit = it->indices.begin()+k;
+                P3(0) = cloud_filtered->points[*pit].x;
+                P3(1) = cloud_filtered->points[*pit].y;
+                P3(2) = cloud_filtered->points[*pit].z;
+
+                // Euclidean distance between point and line
+                dist = std::abs(Vij(0)*P3(0) + Vij(1)*P3(1) + Vij(2))/std::sqrt(Vij(0)*Vij(0) + Vij(1)*Vij(1));
+                if (dist > dist_max)
+                {
+                    if(Pj==P3 || Pi==P3)
+                    {
+                        continue;
+                    }
+                    Pk = P3;
+                    dist_max = dist;
+                }
+            }
+
+            // 3. circumcenter coordinates from cross and dot products
+            float alpha;
+            float beta;
+            float gamma;
+
+            Vector3d Pi_j = Pi - Pj;
+            Vector3d Pj_k = Pj - Pk;
+            Vector3d Pk_i = Pk - Pi;
+
+            float radius;
+            radius = 0.5*(euc_dist(Po, Pi_j)*euc_dist(Po, Pj_k)*euc_dist(Po, Pk_i)) \
+                    /euc_dist(Po, Pi_j.cross(Pj_k));
+
+            alpha = 0.5 * std::pow(euc_dist(Po, Pj_k), 2.0) * Pi_j.dot(-Pk_i) \
+                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0);
+            beta = 0.5 * std::pow(euc_dist(Po, -Pk_i), 2.0) * -Pi_j.dot(Pj_k) \
+                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0); 
+            gamma = 0.5 * std::pow(euc_dist(Po, Pi_j), 2.0) * Pk_i.dot(-Pj_k) \
+                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0); 
+
+            Vector3d Pcentroid;
+            Pcentroid = alpha*Pi + beta*Pj + gamma*Pk;
+            centroid.x = Pcentroid(0);
+            centroid.y = Pcentroid(1);
+            centroid.z = 0.0;           
+            // centroid.intensity=input->header.stamp.toSec(); // used intensity slot(float) for time with GP
+        } 
+        
 
         /* Predict with GP 
         predicted_centroid: i, predicted centroid from GP
         centroids: (i-10)~(i), predicted centroid stack from GP
         centroid: i, observed centroid */
-        pcl::PointXYZI predicted_centroid;
+        pcl::PointXYZI predicted_centroid; /*
         predicted_centroid = GP(centroids, centroid);
 
         if (centroids.size() >= 10) // centroids array update
@@ -196,7 +257,10 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         {
             predicted_centroids.erase(centroids.begin());
         }
-        predicted_centroids.push_back(predicted_centroid);
+        predicted_centroids.push_back(predicted_centroid); */
+
+        e_1 = clock();
+        cout<<input->header.stamp.toSec()<<","<<centroid.x<<","<<centroid.y<<","<<((e_1-s_1)*(1e-3))<<endl;
 
         /* Publish state & rviz marker */
         // publishObstacles();
@@ -361,8 +425,198 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     return cloud_pre_process;
 }
 
+/*
+pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster_indices, const PointCloudConstPtr &cloud_filtered, const PointCloud2ConstPtr &input)
+{
+        // To separate each cluster out of the vector<PointIndices> we have to 
+        // iterate through cluster_indices, create a new PointCloud for each 
+        // entry and write all points of the current cluster in the PointCloud. 
+        std::vector<pcl::PointIndices>::const_iterator it;
+        std::vector<int>::const_iterator pit;
+
+        pcl::PointXYZI centroid; // (t) timestep cluster centroid (얘도 원래 vector나 스마트포인터로 해야함)
+        it = cluster_indices.begin(); // 원래 object가 여러개 잡혀서 iterator로 돌려야하나, 현재는 하나만 찾도록 해둠. 원래 for문이 들어갈 자리라 중괄호 남겨둠
+        
+        {
+            // make distance triangular metrix from euclidean distance
+            float Pi[3]; 
+            float Pj[3]; 
+            float Pk[3]; 
+            float Pij[3]; // vector between Pi ~ Pj
+
+            // 1. get Pi, Pj
+            float dist_max=0;
+            for(int i=0; i!=it->indices.size(); i++)
+            {
+                for(int j=i+1; j!=it->indices.size(); j++)
+                {
+                    float dist;
+                    float P1[3]; 
+                    float P2[3];
+                    P1[0] = cloud_filtered->points[it->indices.begin()+i].x;
+                    P1[1] = cloud_filtered->points[it->indices.begin()+i].y;
+                    P1[2] = cloud_filtered->points[it->indices.begin()+i].z;
+                    P2[0] = cloud_filtered->points[it->indices.begin()+j].x;
+                    P2[1] = cloud_filtered->points[it->indices.begin()+j].y;
+                    P2[2] = cloud_filtered->points[it->indices.begin()+j].z;
+
+                    dist = euc_dist(P1, P2);
+                    if (dist > dist_max)
+                    {
+                        Pi = P1;
+                        Pj = P2;
+                        Pij[0] = P1[0]-P2[0];
+                        Pij[1] = -(P1[1]-P2[1]);
+                        Pij[2] = -Pij[0]*P1[0] - Pij[1]*P1[2];
+                        dist_max = dist;
+                    }
+                }
+            }
+
+            // 2. get Pk 
+            dist_max = 0;
+            for(int k=0; k!=it->indices.size(); k++)
+            {
+                float dist;
+                float P3[3];
+                P3[0] = cloud_filtered->points[it->indices.begin()+k].x;
+                P3[1] = cloud_filtered->points[it->indices.begin()+k].y;
+                P3[2] = cloud_filtered->points[it->indices.begin()+k].z;
+
+                // Euclidean distance between point and line
+                dist = std::abs(Pij[0]*P3[0] + Pij[1]*P3[1] + Pij[2])/std::sqrt(Pij[0]*Pij[0] + Pij[1]*Pij[1]);
+                if (dist > dist_max)
+                {
+                    Pk = P3;
+                    dist_max = dist;
+                }
+            }
+
+            // 3. circumcenter coordinates from cross and dot products
+            float alpha;
+            float beta;
+            float gamma;
+
+            float radius;
+            radius = 0.5*(euc_dist(Pi,Pj)*euc_dist(Pj,Pk)*euc_dist(Pk,Pi)) \
+                    /euc_dist(0, cross((Pi-Pj), (Pj-Pk)));
+
+            alpha = 0.5 * std::pow(euc_dist(Pj-Pk)) * dot((Pi-Pj), (Pj-Pk)) \
+                    /std::pow(euc_dist(0, cross((Pi-Pj), (Pj-Pk))));
+            beta = 0.5 * std::pow(euc_dist(Pi-Pk)) * dot((Pj-Pi), (Pj-Pk)) \
+                    /std::pow(euc_dist(0, cross((Pi-Pj), (Pj-Pk)))); 
+            gamma = 0.5 * std::pow(euc_dist(Pi-Pj)) * dot((Pk-Pi), (Pk-Pj)) \
+                    /std::pow(euc_dist(0, cross((Pi-Pj), (Pj-Pk)))); 
+
+            float Pcentroid[3];
+            Pcentroid = alpha*Pi + beta*Pj + gamma*Pk;
+            centroid.x = Pcentroid[0];
+            centroid.y = Pcentroid[1];
+            centroid.z = 0.0;
+            centroid.intensity=input->header.stamp.toSec(); // used intensity slot(float) for time with GP
+        } 
+
+        {
+            // make distance triangular metrix from euclidean distance
+            Vector3d Pi; 
+            Vector3d Pj; 
+            Vector3d Pk; 
+
+            Vector3d Pij; // vector between Pi ~ Pj
+            Vector3d Po;
+
+            // 1. get Pi, Pj
+            
+            float dist_max=0;
+            for(int i=0; i!=it->indices.size(); i++)
+            {
+                for(int j=i+1; j!=it->indices.size(); j++)
+                {
+                    float dist;     
+
+                    Vector3d P1; 
+                    Vector3d P2;     
+                    pit = it->indices.begin()+i;              
+                    P1(0) = cloud_filtered->points[*pit].x;
+                    P1(1) = cloud_filtered->points[*pit].y;
+                    P1(2) = cloud_filtered->points[*pit].z;
+                    pit = it->indices.begin()+j;
+                    P2(0) = cloud_filtered->points[*pit].x;
+                    P2(1) = cloud_filtered->points[*pit].y;
+                    P2(2) = cloud_filtered->points[*pit].z;
+
+                    dist = euc_dist(P1, P2);
+                    if (dist > dist_max)
+                    {
+                        Pi = P1;
+                        Pj = P2;
+                        Pij(0) = P1(0)-P2(0);
+                        Pij(1) = -(P1(1)-P2(1));
+                        Pij(2) = -Pij(0)*P1(0) - Pij(1)*P1(2);
+                        dist_max = dist;
+                    }
+                }
+            }
+
+            // 2. get Pk 
+            dist_max = 0;
+            for(int k=0; k!=it->indices.size(); k++)
+            {
+                float dist;
+
+                Vector3d P3;
+                pit = it->indices.begin()+k;
+                P3(0) = cloud_filtered->points[*pit].x;
+                P3(1) = cloud_filtered->points[*pit].y;
+                P3(2) = cloud_filtered->points[*pit].z;
+
+                // Euclidean distance between point and line
+                dist = std::abs(Pij(0)*P3(0) + Pij(1)*P3(1) + Pij(2))/std::sqrt(Pij(0)*Pij(0) + Pij(1)*Pij(1));
+                if (dist > dist_max)
+                {
+                    Pk = P3;
+                    dist_max = dist;
+                }
+            }
+
+            // 3. circumcenter coordinates from cross and dot products
+            float alpha;
+            float beta;
+            float gamma;
+
+            Vector3d Pi_j = Pi - Pj;
+            Vector3d Pj_k = Pj - Pk;
+            Vector3d Pk_i = Pk - Pi;
+
+            float radius;
+            radius = 0.5*(euc_dist(Pi,Pj)*euc_dist(Pj,Pk)*euc_dist(Pk,Pi)) \
+                    /euc_dist(Po, Pi_j.cross(Pj_k));
+
+            alpha = 0.5 * std::pow(euc_dist(Po, Pj-Pk), 2.0) * Pi_j.dot(Pj_k) \
+                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0);
+            beta = 0.5 * std::pow(euc_dist(Po, Pi-Pk), 2.0) * -Pi_j.dot(Pj_k) \
+                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0); 
+            gamma = 0.5 * std::pow(euc_dist(Po, Pi-Pj), 2.0) * Pk_i.dot(-Pj_k) \
+                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0); 
+
+            Vector3d Pcentroid;
+            Pcentroid = alpha*Pi + beta*Pj + gamma*Pk;
+            centroid.x = Pcentroid(0);
+            centroid.y = Pcentroid(1);
+            centroid.z = 0.0;
+            centroid.intensity=input->header.stamp.toSec(); // used intensity slot(float) for time with GP
+        }
+
+        return centroid;
+} */
+
 pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> predicted_centroids, pcl::PointXYZI centroid)
 {
     pcl::PointXYZI temp;
     return centroid;
+}
+
+float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)
+{
+    return std::sqrt((P1(0)-P2(0))*(P1(0)-P2(0)) + (P1(1)-P2(1))*(P1(1)-P2(1)) + (P1(2)-P2(2))*(P1(2)-P2(2)));
 }

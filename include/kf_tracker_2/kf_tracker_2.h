@@ -125,10 +125,10 @@ private:
         pcl::PointCloud<pcl::PointXYZ> input_cloud, \
         pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
 
-    // pcl::PointXYZI getCentroid( \
-    //     std::vector<pcl::PointIndices> cluster_indices, \
-    //     const PointCloudConstPtr &cloud_filtered, \
-    //     const PointCloud2ConstPtr &input);
+    pcl::PointXYZI getCentroid( \
+        std::vector<pcl::PointIndices> cluster_indices, \
+        const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
+        const sensor_msgs::PointCloud2 input);
 
     pcl::PointXYZI GP( \
         std::vector<pcl::PointXYZI> predicted_centroids, \

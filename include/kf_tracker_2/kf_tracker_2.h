@@ -103,7 +103,7 @@ public:
     int MinClusterSize_; // default 10
     int MaxClusterSize_; // default 600
     float VoxelLeafSize_;
-    bool firstFrame = false;
+    bool firstFrame = true;
 
 private:
 
@@ -130,9 +130,7 @@ private:
         const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
         const sensor_msgs::PointCloud2 input);
 
-    pcl::PointXYZI GP( \
-        std::vector<pcl::PointXYZI> predicted_centroids, \
-        pcl::PointXYZI centroid);
+    pcl::PointXYZI GP(std::vector<pcl::PointXYZI> centroids);
 
     float euc_dist(Vector3d P1, Vector3d P2);
 

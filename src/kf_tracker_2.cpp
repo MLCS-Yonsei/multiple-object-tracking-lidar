@@ -71,12 +71,76 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     // If this is the first frame, initialize kalman filters for the clustered objects
     if (firstFrame)
     {   
-        ;
+                // Process the point cloud 
+        // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
+        pcl::PointCloud<pcl::PointXYZ> input_cloud;
+        pcl::fromROSMsg (*input, input_cloud);
+
+        // Voxel Down sampling 
+        pcl::VoxelGrid<pcl::PointXYZ> vg;
+        pcl::PointCloud<pcl::PointXYZ> cloud_1;
+        vg.setInputCloud (input_cloud.makeShared());
+        vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
+        vg.filter (cloud_1);
+
+        // 2D Projection
+        for(int l=0; l!=cloud_1.points.size(); l++)
+        {
+            cloud_1.points[l].z=0.0;
+        }
+
+        // Voxel Down sampling
+        pcl::VoxelGrid<pcl::PointXYZ> vg2;
+        pcl::PointCloud<pcl::PointXYZ> cloud_2;
+        vg2.setInputCloud (cloud_1.makeShared());
+        vg2.setLeafSize (0.5*VoxelLeafSize_, 0.5*VoxelLeafSize_, 0.1*VoxelLeafSize_); // Leaf size 0.1m
+        vg2.filter (cloud_2);
+
+        // Remove static obstacles from occupied grid map msg
+        pcl::PointCloud<pcl::PointXYZ> cloud_3;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+        cloud_3 = removeStatic(cloud_2, cloud_3);
+        *cloud_filtered = cloud_3;
+
+        sensor_msgs::PointCloud2 cloud_filtered_ros;
+        pcl::toROSMsg(*cloud_filtered, cloud_filtered_ros);
+        cloud_filtered_ros.header.frame_id = "map";
+        pc1.publish(cloud_filtered_ros);
+
+        // Creating the KdTree from voxel point cloud 
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+        tree->setInputCloud (cloud_filtered);
+
+        // Here we are creating a vector of PointIndices, which contains the actual index
+        // information in a vector<int>. The indices of each detected cluster are saved here.
+        // Cluster_indices is a vector containing one instance of PointIndices for each detected 
+        // cluster. Cluster_indices[0] contain all indices of the first cluster in input point cloud.
+        std::vector<pcl::PointIndices> cluster_indices;
+        pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+        ec.setClusterTolerance (ClusterTolerance_);
+        ec.setMinClusterSize (MinClusterSize_);
+        ec.setMaxClusterSize (MaxClusterSize_);
+        ec.setSearchMethod (tree);
+        ec.setInputCloud (cloud_filtered);
+
+        // Extract the clusters out of pc and save indices in cluster_indices.
+        ec.extract (cluster_indices); // most of Runtime are used from this step.
+
+        // Predict obstacle center with circumcenter method
+        pcl::PointXYZI centroid;
+        centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
+
+        if (centroids.size() >= 10) // centroids array update
+        {
+            firstFrame = false;
+            centroids.erase(centroids.begin());
+        }
+        centroids.push_back(centroid);
     }
  
     else
     { 
-        s_1 = clock();
+        // s_1 = clock();
 
         // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
@@ -137,27 +201,26 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
+        // centroids array update
+        centroids.erase(centroids.begin());
+        centroids.push_back(centroid);
+
         /* Predict with GP 
         predicted_centroid: i, predicted centroid from GP
         centroids: (i-10)~(i), predicted centroid stack from GP
         centroid: i, observed centroid */
         pcl::PointXYZI predicted_centroid; 
-        predicted_centroid = GP(centroids, centroid);
+        predicted_centroid = GP(centroids);
 
-        if (centroids.size() >= 10) // centroids array update
-        {
-            centroids.erase(centroids.begin());
-        }
-        centroids.push_back(centroid);
-
+        // update predicted_centroids for calculate velocity
         if (predicted_centroids.size() >= 2) // centroids array(from GP) update
         {
             predicted_centroids.erase(centroids.begin());
         }
         predicted_centroids.push_back(predicted_centroid); 
 
-        e_1 = clock();
-        cout<<input->header.stamp.toSec()<<","<<centroid.x<<","<<centroid.y<<","<<((e_1-s_1)*(1e-3))<<endl;
+        // e_1 = clock();
+        // cout<<input->header.stamp.toSec()<<","<<centroid.x<<","<<centroid.y<<","<<((e_1-s_1)*(1e-3))<<endl;
 
         /* Publish state & rviz marker */
         // publishObstacles();
@@ -429,10 +492,10 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
         return centroid;
 } 
 
-pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> predicted_centroids, pcl::PointXYZI centroid)
+pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> centroids)
 {
     pcl::PointXYZI temp;
-    return centroid;
+    return temp;
 }
 
 float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)

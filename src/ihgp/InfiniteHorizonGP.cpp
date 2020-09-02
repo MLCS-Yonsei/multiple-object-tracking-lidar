@@ -4,7 +4,7 @@
 #include <Eigen/Cholesky>
 #include <unsupported/Eigen/MatrixFunctions>
 
-#include "InfiniteHorizonGP.hpp"
+#include "ihgp/InfiniteHorizonGP.hpp"
 
 const double InfiniteHorizonGP::DARE_EPS = 1e-10;
 const int InfiniteHorizonGP::DARE_MAXIT = 100;

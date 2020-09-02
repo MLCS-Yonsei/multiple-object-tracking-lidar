@@ -5,7 +5,10 @@
 #include <iterator>
 #include <time.h> // We don't need it for run. It's for Runtime check
 #include <cmath>
+#include <ctime>
 #include <Eigen/Dense>
+#include <Eigen/Core>
+#include <vector>
 
 // ros msgs
 #include <ros/ros.h>
@@ -22,8 +25,6 @@
 // obstacle ros msgs
 #include <costmap_converter/ObstacleArrayMsg.h>
 #include <costmap_converter/ObstacleMsg.h>
-#include <lmpcc_msgs/lmpcc_obstacle_array.h>
-#include <lmpcc_msgs/lmpcc_obstacle.h>
 #include <geometry_msgs/Polygon.h>
 #include <geometry_msgs/Point32.h>
 #include <std_msgs/Float64.h>
@@ -54,6 +55,10 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/common/centroid.h>
+
+// IHGP
+#include "ihgp/InfiniteHorizonGP.hpp"
+#include "ihgp/Matern32model.hpp"
  
 // visualization
 #include <visualization_msgs/MarkerArray.h>
@@ -97,6 +102,15 @@ public:
     std::vector<pcl::PointXYZI> predicted_centroids; // t~(t-1) cluster Centers stack (GP prediction)
     std::vector<int> objID;
     nav_msgs::OccupancyGrid map_copy;
+
+    // IHGP state space model
+    Matern32model model;
+    float dt_gp; 
+
+    // Data set for IHGP
+    std::vector<double> T;
+    std::vector<double> X;
+    std::vector<double> Y;
     
     int obstacle_num_;
     float ClusterTolerance_; // (m) default 0.3

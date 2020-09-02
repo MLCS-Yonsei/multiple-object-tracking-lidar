@@ -2,7 +2,7 @@
 #include <cmath>
 #include <Eigen/Core>
 
-#include "Matern32model.hpp"
+#include "ihgp/Matern32model.hpp"
 
 Matern32model::Matern32model()
 {

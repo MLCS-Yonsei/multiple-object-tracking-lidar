@@ -104,14 +104,19 @@ public:
     nav_msgs::OccupancyGrid map_copy;
 
     // IHGP state space model
-    Matern32model model;
-    float dt_gp; 
+    Matern32model model_x;
+    Matern32model model_y;
 
-    // Data set for IHGP
-    std::vector<double> T;
-    std::vector<double> X;
-    std::vector<double> Y;
+    // IHGP
+    float dt_gp; 
+    std::vector<double> Eft_x;
+    std::vector<double> Eft_y;
+    std::vector<double> logLengthScales_x;
+    std::vector<double> logLengthScales_y;
+    std::vector<double> logMagnSigma2s_x;
+    std::vector<double> logMagnSigma2s_y;
     
+    // configuration
     int obstacle_num_;
     float ClusterTolerance_; // (m) default 0.3
     int MinClusterSize_; // default 10

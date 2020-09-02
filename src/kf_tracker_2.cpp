@@ -1,11 +1,5 @@
 #include "kf_tracker_2/kf_tracker_2.h"
 
-/* TODO
-2. Static obstacle pointcloud removal 이전에 예외처리 추가
-(slam이 충분하지 않아서 dynamic까지 전부 지워버리면 에러나는듯?)
-3. GP 추가
-*/
-
 
 ObstacleTrack::ObstacleTrack()
 {
@@ -134,13 +128,29 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         {
             firstFrame = false;
             centroids.erase(centroids.begin());
+
+            float dt_sum;
+            for(int i; i!=centroids.size()-1; i++)
+            {
+                dt_sum += centroids[i+1].intensity - centroids[i].intensity;
+            }
+            dt_gp = dt_sum/(centroids.size()-1);
+
+            // Set hyperparameters
+            model_x.setMagnSigma2(0.1);
+            model_x.setLengthScale(0.1);
+            model_x.setSigma2(0.1);
+
+            model_y.setMagnSigma2(0.1);
+            model_y.setLengthScale(0.1);
+            model_y.setSigma2(0.1);
         }
         centroids.push_back(centroid);
     }
  
     else
     { 
-        // s_1 = clock();
+        s_1 = clock();
 
         // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
@@ -173,10 +183,10 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         cloud_3 = removeStatic(cloud_2, cloud_3);
         *cloud_filtered = cloud_3;
 
-        sensor_msgs::PointCloud2 cloud_filtered_ros;
-        pcl::toROSMsg(*cloud_filtered, cloud_filtered_ros);
-        cloud_filtered_ros.header.frame_id = "map";
-        pc1.publish(cloud_filtered_ros);
+        // sensor_msgs::PointCloud2 cloud_filtered_ros;
+        // pcl::toROSMsg(*cloud_filtered, cloud_filtered_ros);
+        // cloud_filtered_ros.header.frame_id = "map";
+        // pc1.publish(cloud_filtered_ros);
 
         // Creating the KdTree from voxel point cloud 
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
@@ -219,8 +229,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         }
         predicted_centroids.push_back(predicted_centroid); 
 
-        // e_1 = clock();
-        // cout<<input->header.stamp.toSec()<<","<<centroid.x<<","<<centroid.y<<","<<((e_1-s_1)*(1e-3))<<endl;
+        e_1 = clock();
+        cout<<input->header.stamp.toSec()<<"," \
+            <<centroid.x<<","<<centroid.y<<"," \
+            <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
+            <<((e_1-s_1)*(1e-3))<<endl;
 
         /* Publish state & rviz marker */
         // publishObstacles();
@@ -494,8 +507,96 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
 
 pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> centroids)
 {
-    pcl::PointXYZI temp;
-    return temp;
+    // Do inference
+    InfiniteHorizonGP gp_x(dt_gp,
+        model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
+    InfiniteHorizonGP gp_y(dt_gp,
+        model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
+
+    // Loop through data
+    for (int k=0; k<10; k++)
+    {
+        gp_x.update(centroids[k].x);
+        gp_y.update(centroids[k].y);
+    }
+    
+    // Pull out the gradient (account for log-transformation)
+    double logMagnSigma2_x = log(model_x.getMagnSigma2());
+    double logLengthScale_x = log(model_x.getLengthScale());
+    double dLikdlogMagnSigma2_x = model_x.getMagnSigma2() * gp_x.getLikDeriv()(1);
+    double dLikdlogLengthScale_x = model_x.getLengthScale() * gp_x.getLikDeriv()(2);
+
+    double logMagnSigma2_y = log(model_y.getMagnSigma2());
+    double logLengthScale_y = log(model_y.getLengthScale());
+    double dLikdlogMagnSigma2_y = model_y.getMagnSigma2() * gp_y.getLikDeriv()(1);
+    double dLikdlogLengthScale_y = model_y.getLengthScale() * gp_y.getLikDeriv()(2);
+    
+    // Do the gradient descent step
+    logMagnSigma2_x = logMagnSigma2_x - 0.1*dLikdlogMagnSigma2_x;
+    logLengthScale_x = logLengthScale_x - 0.01*dLikdlogLengthScale_x;
+
+    logMagnSigma2_y = logMagnSigma2_y - 0.1*dLikdlogMagnSigma2_y;
+    logLengthScale_y = logLengthScale_y - 0.01*dLikdlogLengthScale_y;
+    
+    // Introduce contraints to keep the behavior better in control
+    if (logMagnSigma2_x < -6) { logMagnSigma2_x = -6; } else if (logMagnSigma2_x > 4) { logMagnSigma2_x = 4; }
+    if (logLengthScale_x < -2) { logLengthScale_x = -2; } else if (logLengthScale_x > 2) { logLengthScale_x = 2; }
+
+    if (logMagnSigma2_y < -6) { logMagnSigma2_y = -6; } else if (logMagnSigma2_y > 4) { logMagnSigma2_y = 4; }
+    if (logLengthScale_y < -2) { logLengthScale_y = -2; } else if (logLengthScale_y > 2) { logLengthScale_y = 2; }
+
+    // Update the model
+    model_x.setMagnSigma2(exp(logMagnSigma2_x));
+    model_x.setLengthScale(exp(logLengthScale_x));
+
+    model_y.setMagnSigma2(exp(logMagnSigma2_y));
+    model_y.setLengthScale(exp(logLengthScale_y));
+    
+    // Check if this went bad and re-initialize
+    if (isnan(model_x.getMagnSigma2()) | isnan(model_x.getLengthScale()) |
+        isinf(model_x.getMagnSigma2()) | isinf(model_x.getLengthScale())) {
+        model_x.setMagnSigma2(1.0);
+        model_x.setLengthScale(1.0);
+        cout<<"[error] Bad parameters."<<endl;
+    }
+        if (isnan(model_y.getMagnSigma2()) | isnan(model_y.getLengthScale()) |
+        isinf(model_y.getMagnSigma2()) | isinf(model_y.getLengthScale())) {
+        model_y.setMagnSigma2(1.0);
+        model_y.setLengthScale(1.0);
+        cout<<"[error] Bad parameters."<<endl;
+    }
+
+    // Push previous hyperparameters to history
+    logMagnSigma2s_x.push_back(logMagnSigma2_x);
+    logLengthScales_x.push_back(logLengthScale_x);
+
+    logMagnSigma2s_y.push_back(logMagnSigma2_y);
+    logLengthScales_y.push_back(logLengthScale_y);
+    
+    // Pull out the marginal mean and variance estimates
+    Eft_x = gp_x.getEft();
+    Eft_y = gp_y.getEft();
+
+    pcl::PointXYZI predicted_centroid;
+    predicted_centroid.x = Eft_x[Eft_x.size()-1];
+    predicted_centroid.y = Eft_y[Eft_y.size()-1];
+    predicted_centroid.z = 0.0;
+    predicted_centroid.intensity = centroids[centroids.size()-1].intensity;
+    
+    return predicted_centroid;
+
+    // debug
+    // cout<<centroids[centroids.size()-1].x<<"/ "<<Eft[Eft.size()-1]<<endl;
+    // cout<<"Input x : "<<centroids[centroids.size()-1].x<<endl;
+    // for(int i=Eft_x.size()-2; i!=Eft_x.size(); i++)
+    // {
+    //     cout<<i<<": "<<Eft_x[i]<<endl;
+    // }
+    // cout<<"Input y : "<<centroids[centroids.size()-1].y<<endl;
+    // for(int i=Eft_y.size()-2; i!=Eft_y.size(); i++)
+    // {
+    //     cout<<i<<": "<<Eft_y[i]<<endl;
+    // }
 }
 
 float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)

@@ -110,6 +110,12 @@ public:
 
     // IHGP
     float dt_gp; 
+    double Sigma2_x_;
+    double MagnSigma2_x_;
+    double LengthScale_x_;
+    double Sigma2_y_;
+    double MagnSigma2_y_;
+    double LengthScale_y_;
     std::vector<double> Eft_x;
     std::vector<double> Eft_y;
     std::vector<double> logLengthScales_x;

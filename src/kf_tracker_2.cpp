@@ -53,6 +53,14 @@ void ObstacleTrack::updateParam()
     nh_.param<int>("/kf_tracker_2/min_cluster_size", MinClusterSize_, 10);
     nh_.param<int>("/kf_tracker_2/max_cluster_size", MaxClusterSize_, 200);
     nh_.param<float>("/kf_tracker_2/voxel_leaf_size", VoxelLeafSize_, 0.05); // default is same with map resolution
+
+    nh_.param<double>("/kf_tracker_2/Sigma2_x", Sigma2_x_, -2.6); // log scale hyperparameter
+    nh_.param<double>("/kf_tracker_2/MagnSigma2_x", MagnSigma2_x_, 3.0);
+    nh_.param<double>("/kf_tracker_2/LengthScale_x", LengthScale_x_, -5.0);
+
+    nh_.param<double>("/kf_tracker_2/Sigma2_y", Sigma2_y_, -1.4);
+    nh_.param<double>("/kf_tracker_2/MagnSigma2_y", MagnSigma2_y_, 4.0);
+    nh_.param<double>("/kf_tracker_2/LengthScale_y", LengthScale_y_, -5.0);
 }
 
 void ObstacleTrack::spinNode()
@@ -137,13 +145,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             dt_gp = dt_sum/(data_length);
 
             // Set hyperparameters
-            model_x.setMagnSigma2(20.0855); // 3.0 (log_scale)
-            model_x.setLengthScale(0.0067); //-5.0 (log_scale)
-            model_x.setSigma2(0.0743); //-2.6 (log_scale)
+            model_x.setSigma2(exp(Sigma2_x_));
+            model_x.setMagnSigma2(exp(MagnSigma2_x_)); 
+            model_x.setLengthScale(exp(LengthScale_x_));
 
-            model_y.setMagnSigma2(54.5982); //4.0 (log_scale)
-            model_y.setLengthScale(0.0067); //-5.0 (log_scale)
-            model_y.setSigma2(0.2466); //-1.4 (log_scale)
+            model_y.setSigma2(exp(Sigma2_y_));
+            model_y.setMagnSigma2(exp(MagnSigma2_y_)); 
+            model_y.setLengthScale(exp(LengthScale_y_)); 
         }
         centroids.push_back(centroid);
     }

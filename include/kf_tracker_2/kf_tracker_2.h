@@ -149,7 +149,9 @@ private:
         const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
         const sensor_msgs::PointCloud2 input);
 
-    pcl::PointXYZI GP(std::vector<pcl::PointXYZI> centroids);
+    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids);
+
+    pcl::PointXYZI IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids);
 
     float euc_dist(Vector3d P1, Vector3d P2);
 

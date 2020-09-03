@@ -137,13 +137,16 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             dt_gp = dt_sum/(centroids.size()-1);
 
             // Set hyperparameters
-            model_x.setMagnSigma2(0.1);
-            model_x.setLengthScale(0.1);
-            model_x.setSigma2(0.1);
+            model_x.setSigma2(-3.0);
+            model_x.setMagnSigma2(1.0);
+            model_x.setLengthScale(-3.75);
+            // model_x.setSigma2(0.1);
+            // model_x.setMagnSigma2(0.1);
+            // model_x.setLengthScale(0.1);
 
+            model_y.setSigma2(0.1);
             model_y.setMagnSigma2(0.1);
             model_y.setLengthScale(0.1);
-            model_y.setSigma2(0.1);
         }
         centroids.push_back(centroid);
     }
@@ -220,7 +223,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         centroids: (i-10)~(i), predicted centroid stack from GP
         centroid: i, observed centroid */
         pcl::PointXYZI predicted_centroid; 
-        predicted_centroid = GP(centroids);
+        predicted_centroid = IHGP_fixed(centroids);  // 18 ms
+        // predicted_centroid = IHGP_nonfixed(centroids);  // 9~14 ms ???
 
         // update predicted_centroids for calculate velocity
         if (predicted_centroids.size() >= 2) // centroids array(from GP) update
@@ -505,14 +509,69 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
         return centroid;
 } 
 
-pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> centroids)
+pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
 {
+    s_5 = clock();
     // Do inference
     InfiniteHorizonGP gp_x(dt_gp,
         model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
     InfiniteHorizonGP gp_y(dt_gp,
         model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
+    e_5 = clock();
+    cout<<"[fix-1] "<<((e_5-s_5)*(1e-3))<<endl;
 
+    s_6 = clock();
+    // Loop through data
+    for (int k=0; k<10; k++)
+    {
+        gp_x.update(centroids[k].x);
+        gp_y.update(centroids[k].y);
+    }
+    e_6 = clock();
+    cout<<"[fix-2] "<<((e_6-s_6)*(1e-3))<<endl;
+
+
+    s_7 = clock();   
+    // Pull out the marginal mean and variance estimates
+    Eft_x = gp_x.getEft();
+    Eft_y = gp_y.getEft();
+
+    pcl::PointXYZI predicted_centroid;
+    predicted_centroid.x = Eft_x[Eft_x.size()-1]; // -1 이 맞음 drop 해결못해서 임시로 -3
+    predicted_centroid.y = Eft_y[Eft_y.size()-1]; // -1 이 맞음 drop 해결못해서 임시로 -3
+    predicted_centroid.z = 0.0;
+    predicted_centroid.intensity = centroids[centroids.size()-1].intensity;
+    e_7 = clock();
+    cout<<"[fix-3] "<<((e_7-s_7)*(1e-3))<<endl;
+
+    return predicted_centroid;
+
+    // debug
+    // cout<<centroids[centroids.size()-1].x<<"/ "<<Eft[Eft.size()-1]<<endl;
+    // cout<<"Input x : "<<centroids[centroids.size()-1].x<<endl;
+    // for(int i=Eft_x.size()-2; i!=Eft_x.size(); i++)
+    // {
+    //     cout<<i<<": "<<Eft_x[i]<<endl;
+    // }
+    // cout<<"Input y : "<<centroids[centroids.size()-1].y<<endl;
+    // for(int i=Eft_y.size()-2; i!=Eft_y.size(); i++)
+    // {
+    //     cout<<i<<": "<<Eft_y[i]<<endl;
+    // }
+}
+
+pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids)
+{
+    s_2 = clock();
+    // Do inference
+    InfiniteHorizonGP gp_x(dt_gp,
+        model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
+    InfiniteHorizonGP gp_y(dt_gp,
+        model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
+    e_2 = clock();
+    cout<<"[nonfix-1] "<<((e_2-s_2)*(1e-3))<<endl;
+
+    s_3 = clock();
     // Loop through data
     for (int k=0; k<10; k++)
     {
@@ -572,7 +631,11 @@ pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> centroids)
 
     logMagnSigma2s_y.push_back(logMagnSigma2_y);
     logLengthScales_y.push_back(logLengthScale_y);
+
+    e_3 = clock();
+    cout<<"[nonfix-2] "<<((e_3-s_3)*(1e-3))<<endl;
     
+    s_4 = clock();
     // Pull out the marginal mean and variance estimates
     Eft_x = gp_x.getEft();
     Eft_y = gp_y.getEft();
@@ -582,6 +645,8 @@ pcl::PointXYZI ObstacleTrack::GP(std::vector<pcl::PointXYZI> centroids)
     predicted_centroid.y = Eft_y[Eft_y.size()-1];
     predicted_centroid.z = 0.0;
     predicted_centroid.intensity = centroids[centroids.size()-1].intensity;
+    e_4 = clock();
+    cout<<"[nonfix-3] "<<((e_4-s_4)*(1e-3))<<endl;
     
     return predicted_centroid;
 

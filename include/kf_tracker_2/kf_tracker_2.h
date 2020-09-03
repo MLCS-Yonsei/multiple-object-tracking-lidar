@@ -98,6 +98,7 @@ public:
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
     clock_t e_1, e_2, e_3, e_4, e_5, e_6, e_7;
     
+    int data_length=10;
     std::vector<pcl::PointXYZI> centroids; // t~(t-10) cluster Centers stack
     std::vector<pcl::PointXYZI> predicted_centroids; // t~(t-1) cluster Centers stack (GP prediction)
     std::vector<int> objID;

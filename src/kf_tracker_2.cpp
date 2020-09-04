@@ -54,13 +54,17 @@ void ObstacleTrack::updateParam()
     nh_.param<int>("/kf_tracker_2/max_cluster_size", MaxClusterSize_, 200);
     nh_.param<float>("/kf_tracker_2/voxel_leaf_size", VoxelLeafSize_, 0.05); // default is same with map resolution
 
-    nh_.param<double>("/kf_tracker_2/Sigma2_x", Sigma2_x_, -2.6); // log scale hyperparameter
-    nh_.param<double>("/kf_tracker_2/MagnSigma2_x", MagnSigma2_x_, 3.0);
-    nh_.param<double>("/kf_tracker_2/LengthScale_x", LengthScale_x_, -5.0);
+    // log scale hyperparameter
+    nh_.param<double>("/kf_tracker_2/logSigma2_x", logSigma2_x_, -2.6); // measurement noise
+    nh_.param<double>("/kf_tracker_2/logMagnSigma2_x", logMagnSigma2_x_, 3.0);
+    nh_.param<double>("/kf_tracker_2/logLengthScale_x", logLengthScale_x_, -5.0);
 
-    nh_.param<double>("/kf_tracker_2/Sigma2_y", Sigma2_y_, -1.4);
-    nh_.param<double>("/kf_tracker_2/MagnSigma2_y", MagnSigma2_y_, 4.0);
-    nh_.param<double>("/kf_tracker_2/LengthScale_y", LengthScale_y_, -5.0);
+    nh_.param<double>("/kf_tracker_2/logSigma2_y", logSigma2_y_, -1.4);
+    nh_.param<double>("/kf_tracker_2/logMagnSigma2_y", logMagnSigma2_y_, 4.0);
+    nh_.param<double>("/kf_tracker_2/logLengthScale_y", logLengthScale_y_, -5.0);
+
+    nh_.param<int>("/kf_tracker_2/data_length", data_length, 10);
+    nh_.param<bool>("/kf_tracker_2/param_fix", param_fix, 0);
 }
 
 void ObstacleTrack::spinNode()
@@ -134,6 +138,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
         if (centroids.size() >= data_length) // centroids array update
         {
+            cout<<"[initalized] "<<centroids.size()<<", "<<data_length<<endl;
             firstFrame = false;
             centroids.erase(centroids.begin());
 
@@ -145,13 +150,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             dt_gp = dt_sum/(data_length);
 
             // Set hyperparameters
-            model_x.setSigma2(exp(Sigma2_x_));
-            model_x.setMagnSigma2(exp(MagnSigma2_x_)); 
-            model_x.setLengthScale(exp(LengthScale_x_));
+            model_x.setSigma2(exp(logSigma2_x_));
+            model_x.setMagnSigma2(exp(logMagnSigma2_x_)); 
+            model_x.setLengthScale(exp(logLengthScale_x_));
 
-            model_y.setSigma2(exp(Sigma2_y_));
-            model_y.setMagnSigma2(exp(MagnSigma2_y_)); 
-            model_y.setLengthScale(exp(LengthScale_y_)); 
+            model_y.setSigma2(exp(logSigma2_y_));
+            model_y.setMagnSigma2(exp(logMagnSigma2_y_)); 
+            model_y.setLengthScale(exp(logLengthScale_y_)); 
         }
         centroids.push_back(centroid);
     }
@@ -223,8 +228,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         centroids: (i-10)~(i), predicted centroid stack from GP
         centroid: i, observed centroid */
         pcl::PointXYZI predicted_centroid; 
-        predicted_centroid = IHGP_fixed(centroids);  // 7 ms
-        // predicted_centroid = IHGP_nonfixed(centroids);  // 9~17 ms
+        if (param_fix = true) { predicted_centroid = IHGP_fixed(centroids); }
+        else if(param_fix = false) { predicted_centroid = IHGP_nonfixed(centroids); }
 
         // update predicted_centroids for calculate velocity
         if (predicted_centroids.size() >= 2) // centroids array(from GP) update
@@ -237,6 +242,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         cout<<input->header.stamp.toSec()<<"," \
             <<centroid.x<<","<<centroid.y<<"," \
             <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
+            <<vel_x<<","<<vel_y<<"," \
             <<((e_1-s_1)*(1e-3))<<endl; 
 
         /* Publish state & rviz marker */
@@ -517,20 +523,36 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
     InfiniteHorizonGP gp_y(dt_gp,
         model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
 
+    // Calculate mean to keep the figure in-view
+    double mean_x = 0;
+    double mean_y = 0;
+    for (int k=0; k<data_length; k++)
+    {
+        mean_x += centroids[k].x;
+        mean_y += centroids[k].y; 
+    }
+    mean_x /= data_length;
+    mean_y /= data_length;
+
     // Loop through data
     for (int k=0; k<data_length; k++)
     {
-        gp_x.update(centroids[k].x);
-        gp_y.update(centroids[k].y);
+        gp_x.update(centroids[k].x - mean_x);
+        gp_y.update(centroids[k].y - mean_y);
     }
 
     // Pull out the marginal mean and variance estimates
     Eft_x = gp_x.getEft();
     Eft_y = gp_y.getEft();
 
+    // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
+    // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
+    vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
+    vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
+
     pcl::PointXYZI predicted_centroid;
-    predicted_centroid.x = Eft_x[data_length-1]; 
-    predicted_centroid.y = Eft_y[data_length-1]; 
+    predicted_centroid.x = Eft_x[data_length-1] + mean_x; 
+    predicted_centroid.y = Eft_y[data_length-1] + mean_y; 
     predicted_centroid.z = 0.0;
     predicted_centroid.intensity = centroids[data_length-1].intensity;
   
@@ -545,11 +567,22 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
     InfiniteHorizonGP gp_y(dt_gp,
         model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
 
+    // Calculate mean to keep the figure in-view
+    double mean_x = 0;
+    double mean_y = 0;
+    for (int k=0; k<data_length; k++)
+    {
+        mean_x += centroids[k].x;
+        mean_y += centroids[k].y; 
+    }
+    mean_x /= data_length;
+    mean_y /= data_length;
+
     // Loop through data
     for (int k=0; k<data_length; k++)
     {
-        gp_x.update(centroids[k].x);
-        gp_y.update(centroids[k].y);
+        gp_x.update(centroids[k].x - mean_x);
+        gp_y.update(centroids[k].y - mean_y);
     }
     
     // Pull out the gradient (account for log-transformation)
@@ -572,10 +605,10 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
     
     // Introduce contraints to keep the behavior better in control
     if (logMagnSigma2_x < -6) { logMagnSigma2_x = -6; } else if (logMagnSigma2_x > 4) { logMagnSigma2_x = 4; }
-    if (logLengthScale_x < -2) { logLengthScale_x = -2; } else if (logLengthScale_x > 2) { logLengthScale_x = 2; }
+    if (logLengthScale_x < -6) { logLengthScale_x = -6; } else if (logLengthScale_x > 6) { logLengthScale_x = 6; }
 
     if (logMagnSigma2_y < -6) { logMagnSigma2_y = -6; } else if (logMagnSigma2_y > 4) { logMagnSigma2_y = 4; }
-    if (logLengthScale_y < -2) { logLengthScale_y = -2; } else if (logLengthScale_y > 2) { logLengthScale_y = 2; }
+    if (logLengthScale_y < -6) { logLengthScale_y = -2; } else if (logLengthScale_y > 2) { logLengthScale_y = 6; }
 
     // Update the model
     model_x.setMagnSigma2(exp(logMagnSigma2_x));
@@ -599,19 +632,24 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
     }
 
     // Push previous hyperparameters to history
-    logMagnSigma2s_x.push_back(logMagnSigma2_x);
-    logLengthScales_x.push_back(logLengthScale_x);
+    // logMagnSigma2s_x.push_back(logMagnSigma2_x);
+    // logLengthScales_x.push_back(logLengthScale_x);
 
-    logMagnSigma2s_y.push_back(logMagnSigma2_y);
-    logLengthScales_y.push_back(logLengthScale_y);
+    // logMagnSigma2s_y.push_back(logMagnSigma2_y);
+    // logLengthScales_y.push_back(logLengthScale_y);
 
     // Pull out the marginal mean and variance estimates
     Eft_x = gp_x.getEft();
     Eft_y = gp_y.getEft();
 
+    // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
+    // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
+    vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
+    vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
+
     pcl::PointXYZI predicted_centroid;
-    predicted_centroid.x = Eft_x[data_length-1];
-    predicted_centroid.y = Eft_y[data_length-1];
+    predicted_centroid.x = Eft_x[data_length-1] + mean_x;
+    predicted_centroid.y = Eft_y[data_length-1] + mean_y;
     predicted_centroid.z = 0.0;
     predicted_centroid.intensity = centroids[data_length-1].intensity;
     

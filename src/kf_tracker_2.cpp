@@ -36,7 +36,8 @@ bool ObstacleTrack::initialize()
         // Initialize Subscriber for input Pointcloud2  
         input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
-        
+        odom_sub = nh_.subscribe("/odom",1,&ObstacleTrack::odomCallback, this);
+
         ROS_INFO_STREAM("ObstacleTrack Initialized");
         return true;
     }
@@ -135,7 +136,10 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // Predict obstacle center with circumcenter method
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
-
+        
+        // Change map coordinate centroid to odom coordinate centroid 
+        centroid = getRelativeCentroid(centroid);
+ 
         if (centroids.size() >= data_length) // centroids array update
         {
             cout<<"[initalized] "<<centroids.size()<<", "<<data_length<<endl;
@@ -219,6 +223,9 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
+        // Change map coordinate centroid to odom coordinate centroid 
+        centroid = getRelativeCentroid(centroid);
+        
         // centroids array update
         centroids.erase(centroids.begin());
         centroids.push_back(centroid);
@@ -239,7 +246,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         predicted_centroids.push_back(predicted_centroid); 
 
         e_1 = clock(); 
-        cout<<input->header.stamp.toSec()<<"," \
+        //cout<<input->header.stamp.toSec()<<"," \
             <<centroid.x<<","<<centroid.y<<"," \
             <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
             <<vel_x<<","<<vel_y<<"," \
@@ -254,6 +261,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
     map_copy = map_msg;
+}
+
+void ObstacleTrack::odomCallback(const nav_msgs::Odometry::ConstPtr& odom_msg)
+{
+    odom_copy = odom_msg;
 }
 
 void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids)
@@ -485,6 +497,28 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             }
 
             // 3. circumcenter coordinates from cross and dot products
+            float A = Pj(0) - Pi(0);
+            float B = Pj(1) - Pi(1);
+            float C = Pk(0) - Pi(0);
+            float D = Pk(1) - Pi(1);
+            float E = A * (Pi(0) + Pj(0)) + B * (Pi(1) + Pj(1));
+            float F = C * (Pi(0) + Pk(0)) + D * (Pi(1) + Pk(1));
+            float G = 2.0 * (A * (Pk(1) - Pj(1)) - B * (Pk(0) - Pj(0)));
+            if(G==0)
+            {
+                centroid.x = Pi(0);
+                centroid.y = Pi(1);
+                centroid.z = 0.0;
+                centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+            }
+            else
+            {
+                centroid.x = (D * E - B * F) / G;
+                centroid.y = (A * F - C * E) / G;
+                centroid.z = 0.0;
+                centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+            }
+            /*
             float alpha;
             float beta;
             float gamma;
@@ -510,6 +544,7 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             centroid.y = Pcentroid(1);
             centroid.z = 0.0;           
             centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+            */
         } 
 
         return centroid;
@@ -659,4 +694,16 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
 float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)
 {
     return std::sqrt((P1(0)-P2(0))*(P1(0)-P2(0)) + (P1(1)-P2(1))*(P1(1)-P2(1)) + (P1(2)-P2(2))*(P1(2)-P2(2)));
+}
+
+pcl::PointXYZI ObstacleTrack::getRelativeCentroid(const pcl::PointXYZI& centroid)
+{
+    pcl::PointXYZI relative_centroid;
+
+    relative_centroid.x = centroid.x - odom_copy->pose.pose.position.x;
+    relative_centroid.y = centroid.y - odom_copy->pose.pose.position.y;
+    relative_centroid.z = 0;
+    relative_centroid.intensity = centroid.intensity;
+
+    return relative_centroid;
 }

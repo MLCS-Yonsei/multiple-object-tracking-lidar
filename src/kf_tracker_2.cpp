@@ -36,8 +36,7 @@ bool ObstacleTrack::initialize()
         // Initialize Subscriber for input Pointcloud2  
         input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
-        odom_sub = nh_.subscribe("/odom",1,&ObstacleTrack::odomCallback, this);
-
+        
         ROS_INFO_STREAM("ObstacleTrack Initialized");
         return true;
     }
@@ -136,10 +135,12 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // Predict obstacle center with circumcenter method
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
-        
-        // Change map coordinate centroid to odom coordinate centroid 
+
+        // Change map coordinate centroid to base_link coordinate centroid 
         centroid = getRelativeCentroid(centroid);
- 
+        //cout << centroid.x <<" "<<centroid.y<<endl;
+
+     
         if (centroids.size() >= data_length) // centroids array update
         {
             cout<<"[initalized] "<<centroids.size()<<", "<<data_length<<endl;
@@ -223,8 +224,9 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
-        // Change map coordinate centroid to odom coordinate centroid 
+        // Change map coordinate centroid to base_link coordinate centroid 
         centroid = getRelativeCentroid(centroid);
+        //cout << centroid.x <<" "<<centroid.y<<endl;
         
         // centroids array update
         centroids.erase(centroids.begin());
@@ -261,11 +263,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
     map_copy = map_msg;
-}
-
-void ObstacleTrack::odomCallback(const nav_msgs::Odometry::ConstPtr& odom_msg)
-{
-    odom_copy = odom_msg;
 }
 
 void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids)
@@ -696,13 +693,30 @@ float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)
     return std::sqrt((P1(0)-P2(0))*(P1(0)-P2(0)) + (P1(1)-P2(1))*(P1(1)-P2(1)) + (P1(2)-P2(2))*(P1(2)-P2(2)));
 }
 
-pcl::PointXYZI ObstacleTrack::getRelativeCentroid(const pcl::PointXYZI& centroid)
+pcl::PointXYZI ObstacleTrack::getRelativeCentroid(pcl::PointXYZI centroid)
 {
-    pcl::PointXYZI relative_centroid;
+    //set object's tf using map coordinate
+    transform.setOrigin( tf::Vector3(centroid.x, centroid.y, 0.0) );
+    transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
+    tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/map", "/object"));
 
-    relative_centroid.x = centroid.x - odom_copy->pose.pose.position.x;
-    relative_centroid.y = centroid.y - odom_copy->pose.pose.position.y;
-    relative_centroid.z = 0;
+    //get transform between base_link and object
+    try
+    {
+        tf_listener.waitForTransform("/base_link", "/object", ros::Time(0), ros::Duration(3.0));
+        tf_listener.lookupTransform("/base_link", "/object", ros::Time(0), stamped_transform);
+    }
+    catch (tf::TransformException &ex) {
+        ROS_ERROR("%s",ex.what());
+        ros::Duration(1.0).sleep();
+    }
+
+    // get relative_centroid using transform
+    pcl::PointXYZI relative_centroid;
+    
+    relative_centroid.x = stamped_transform.getOrigin().x();
+    relative_centroid.y = stamped_transform.getOrigin().y();
+    relative_centroid.z = 0.0;
     relative_centroid.intensity = centroid.intensity;
 
     return relative_centroid;

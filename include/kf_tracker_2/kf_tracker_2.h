@@ -21,7 +21,6 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <nav_msgs/MapMetaData.h>
-#include <nav_msgs/Odometry.h>
 
 // obstacle ros msgs
 #include <costmap_converter/ObstacleArrayMsg.h>
@@ -35,6 +34,9 @@
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/TwistWithCovariance.h>
 
+//tf msgs
+#include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
 
 // pcl 
 #include <pcl_conversions/pcl_conversions.h>
@@ -89,7 +91,6 @@ public:
     ros::Publisher marker_pub; // obstacle pose visualization (KF)
     ros::Subscriber input_sub; // input Pointclouds 
     ros::Subscriber map_sub; // Occupied grid map
-    ros::Subscriber odom_sub; // robot's Odometry
 
     // debug
     ros::Publisher pc1;
@@ -105,7 +106,6 @@ public:
     std::vector<pcl::PointXYZI> predicted_centroids; // t~(t-1) cluster Centers stack (GP prediction)
     std::vector<int> objID;
     nav_msgs::OccupancyGrid map_copy;
-    nav_msgs::Odometry::ConstPtr odom_copy;
 
     // IHGP state space model
     Matern32model model_x;
@@ -137,6 +137,12 @@ public:
     float VoxelLeafSize_;
     bool firstFrame = true;
 
+    //tf msgs
+    tf::TransformBroadcaster tf_broadcast;
+    tf::Transform transform;
+    tf::TransformListener tf_listener;
+    tf::StampedTransform stamped_transform;
+
 private:
 
     ros::NodeHandle nh_;
@@ -146,8 +152,6 @@ private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input);
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
-
-    void odomCallback(const nav_msgs::Odometry::ConstPtr& odom_msg);
 
     void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroid);
 
@@ -170,6 +174,6 @@ private:
 
     float euc_dist(Vector3d P1, Vector3d P2);
 
-    pcl::PointXYZI getRelativeCentroid(const pcl::PointXYZI& centroid);
+    pcl::PointXYZI getRelativeCentroid(pcl::PointXYZI centroid);
 
 };

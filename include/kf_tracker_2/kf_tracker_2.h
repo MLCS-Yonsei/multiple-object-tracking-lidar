@@ -127,8 +127,8 @@ public:
     double logMagnSigma2_y_;
     double logLengthScale_y_;
 
-    double vel_x;
-    double vel_y;
+    double vel_x=999;
+    double vel_y=999;
     double calibration_x=0;
     double calibration_y=0;
     std::vector<double> Eft_x;

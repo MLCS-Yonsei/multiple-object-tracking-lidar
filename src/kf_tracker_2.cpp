@@ -141,13 +141,12 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
         // Change map coordinate centroid to base_link coordinate centroid 
-        centroid = getRelativeCentroid(centroid);
+        // centroid = getRelativeCentroid(centroid);
         //cout << centroid.x <<" "<<centroid.y<<endl;
 
      
         if (centroids.size() >= data_length) // centroids array update
         {
-            cout<<"[initalized] "<<centroids.size()<<", "<<data_length<<endl;
             firstFrame = false;
             centroids.erase(centroids.begin());
 
@@ -194,7 +193,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     else
     { 
         s_1 = clock();
-
         // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
@@ -226,6 +224,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         cloud_3 = removeStatic(cloud_2, cloud_3);
         *cloud_filtered = cloud_3;
 
+        // exit callback if no obstacles
+        if (cloud_filtered->empty())
+        {
+            ROS_INFO("No obstacles around");
+            return;
+        }
+
         // Creating the KdTree from voxel point cloud 
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud (cloud_filtered);
@@ -246,11 +251,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ec.extract (cluster_indices); // most of Runtime are used from this step.
 
         // Predict obstacle center with circumcenter method
+        if (cluster_indices.empty())
+            return;
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
         // Change map coordinate centroid to base_link coordinate centroid 
-        centroid = getRelativeCentroid(centroid);
+        // centroid = getRelativeCentroid(centroid);
         //cout << centroid.x <<" "<<centroid.y<<endl;
         
         // centroids array update
@@ -262,20 +269,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         centroids: (i-10)~(i), predicted centroid stack from GP
         centroid: i, observed centroid */
         pcl::PointXYZI predicted_centroid; 
-        // s_2 = clock();
         if (param_fix == true) { predicted_centroid = IHGP_fixed(centroids); }
         //else if(param_fix == false) { predicted_centroid = IHGP_nonfixed(centroids); }
-        // e_2 = clock();
-
-        // update predicted_centroids for calculate velocity
-        if (predicted_centroids.size() >= 2) // centroids array(from GP) update
-        {
-            predicted_centroids.erase(predicted_centroids.begin());
-        }
-        predicted_centroids.push_back(predicted_centroid); 
-
-        vel_x = (predicted_centroids[1].x - predicted_centroids[0].x)/dt_gp;
-        vel_y = (predicted_centroids[1].y - predicted_centroids[0].y)/dt_gp;
 
         e_1 = clock(); 
         //cout<<input->header.stamp.toSec()<<"," \
@@ -284,9 +279,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             <<vel_x<<","<<vel_y<<"," \
             <<((e_1-s_1)*(1e-3))<<endl; 
 
-        // cout<<((e_2-s_2)*(1e-3))<<((e_1-s_1)*(1e-3))<<endl;
-
-        // cout<<"before debug"<<endl;
         // debug
         if (vel_x < 2.0)
         {
@@ -300,10 +292,9 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             debug_pt_pcl.push_back(temp_pt);
 
             pcl::toROSMsg(debug_pt_pcl, debug_pt);
-            // cout<<"debug msg converted"<<endl;
-            debug_pt.header.frame_id = "map";
+            // debug_pt.header.frame_id = "base_link";
+            debug_pt.header.frame_id = "odom";
             pc1.publish(debug_pt);
-            // cout<<"debug msg published"<<endl;
         }
 
         /* Publish state & rviz marker */
@@ -324,7 +315,7 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
 
     // ObstacleArray header
     obstacle_array.header.stamp = ros::Time::now();
-    obstacle_array.header.frame_id = "odom";
+    obstacle_array.header.frame_id = "map";
 
     obstacle_array.obstacles[0].id = 1;
     // obstacle_array.obstacles[0].radius = ; //pointcloud range
@@ -617,8 +608,8 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
 
     // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
     // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
-    // vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
-    // vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
+    vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
+    vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
 
     // make PCL::PointXYZI data
     pcl::PointXYZI predicted_centroid;
@@ -709,8 +700,8 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
 
     // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
     // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
-    // vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
-    // vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
+    vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
+    vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
 
     pcl::PointXYZI predicted_centroid;
     predicted_centroid.x = Eft_x[data_length-1] + calibration_x;

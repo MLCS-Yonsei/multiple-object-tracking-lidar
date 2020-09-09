@@ -25,9 +25,9 @@
     <param name='logMagnSigma2_x' value='-3.5'/>
     <param name='logLengthScale_x' value='0.75'/>
 
-    <param name='logSigma2_y' value='-1.2436'/>
-    <param name='logMagnSigma2_y' value='-5.0423'/>
-    <param name='logLengthScale_y' value='1.8164'/>
+    <param name='logSigma2_y' value='-5.5'/> <!-- -1.2436 -->
+    <param name='logMagnSigma2_y' value='-3.5'/> <!-- -5.0423 -->
+    <param name='logLengthScale_y' value='0.75'/> <!-- 1.8164 -->
 
     <param name='data_length' value='40'/>
     <param name='param_fix' value='true'/>

@@ -9,11 +9,16 @@ class InfiniteHorizonGP {
 public:
     
     /* Constructor */
-    InfiniteHorizonGP(const double dt, const Eigen::MatrixXd &F, const Eigen::MatrixXd &HH, const Eigen::MatrixXd &Pinf, const double &R, const std::vector<Eigen::MatrixXd> &dF, const std::vector<Eigen::MatrixXd> &dPinf, const std::vector<double> &dR);
-    
+    InfiniteHorizonGP();
+
     /* Destructor */
     ~InfiniteHorizonGP();
+
+    /* Constructor(initialize) */
+    void init_InfiniteHorizonGP(const double dt, const Eigen::MatrixXd &F, const Eigen::MatrixXd &HH, const Eigen::MatrixXd &Pinf, const double &R, const std::vector<Eigen::MatrixXd> &dF, const std::vector<Eigen::MatrixXd> &dPinf, const std::vector<double> &dR);
     
+    void init_step();
+
     /* Pass new data point */
     void update(const double &y);
     

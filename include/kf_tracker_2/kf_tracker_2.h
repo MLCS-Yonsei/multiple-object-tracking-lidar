@@ -109,16 +109,25 @@ public:
     Matern32model model_y;
 
     // IHGP
+    InfiniteHorizonGP gp_x;
+    InfiniteHorizonGP gp_y;
+
     bool param_fix;
     float dt_gp; 
+    // double smooth_Sigma2;
+    // double smooth_MagnSigma2;
+    // double smooth_LengthScale;    
     double logSigma2_x_;
     double logMagnSigma2_x_;
     double logLengthScale_x_;
     double logSigma2_y_;
     double logMagnSigma2_y_;
     double logLengthScale_y_;
+
     double vel_x;
     double vel_y;
+    double calibration_x=0;
+    double calibration_y=0;
     std::vector<double> Eft_x;
     std::vector<double> Eft_y;
     std::vector<double> logLengthScales_x;

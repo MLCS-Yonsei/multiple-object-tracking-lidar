@@ -17,16 +17,20 @@
     <param name='voxel_leaf_size' value='0.1'/>
 
     <!-- Log scale hyper-parameter -->
-    <param name='logSigma2_x' value='-1.4'/>
-    <param name='logMagnSigma2_x' value='5.4'/>
-    <param name='logLengthScale_x' value='-2.5'/>
+    <!--param name='smooth_Sigma2' value='1.0'/>
+    <param name='smooth_MagnSigma2' value='1.0'/>
+    <param name='smooth_LengthScale' value='1.0'/-->
+
+    <param name='logSigma2_x' value='-5.5'/>
+    <param name='logMagnSigma2_x' value='-3.5'/>
+    <param name='logLengthScale_x' value='0.75'/>
 
     <param name='logSigma2_y' value='-1.2436'/>
     <param name='logMagnSigma2_y' value='-5.0423'/>
-    <param name='logLengthScale_y' value='7.8164'/>
+    <param name='logLengthScale_y' value='1.8164'/>
 
-    <param name='data_length' value='30'/>
-    <param name='param_fix' value='0'/>
+    <param name='data_length' value='40'/>
+    <param name='param_fix' value='true'/>
 
     <remap from='input_pointcloud' to='/scan_matched_points2' />
     <!--remap from='input_pointcloud' to='/velodyne_points_front' /-->

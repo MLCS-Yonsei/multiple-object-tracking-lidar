@@ -140,6 +140,11 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
+        // Change map coordinate centroid to base_link coordinate centroid 
+        centroid = getRelativeCentroid(centroid);
+        //cout << centroid.x <<" "<<centroid.y<<endl;
+
+     
         if (centroids.size() >= data_length) // centroids array update
         {
             cout<<"[initalized] "<<centroids.size()<<", "<<data_length<<endl;
@@ -244,6 +249,10 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
+        // Change map coordinate centroid to base_link coordinate centroid 
+        centroid = getRelativeCentroid(centroid);
+        //cout << centroid.x <<" "<<centroid.y<<endl;
+        
         // centroids array update
         centroids.erase(centroids.begin());
         centroids.push_back(centroid);
@@ -269,7 +278,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         vel_y = (predicted_centroids[1].y - predicted_centroids[0].y)/dt_gp;
 
         e_1 = clock(); 
-        cout<<input->header.stamp.toSec()<<"," \
+        //cout<<input->header.stamp.toSec()<<"," \
             <<centroid.x<<","<<centroid.y<<"," \
             <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
             <<vel_x<<","<<vel_y<<"," \
@@ -537,6 +546,28 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             }
 
             // 3. circumcenter coordinates from cross and dot products
+            float A = Pj(0) - Pi(0);
+            float B = Pj(1) - Pi(1);
+            float C = Pk(0) - Pi(0);
+            float D = Pk(1) - Pi(1);
+            float E = A * (Pi(0) + Pj(0)) + B * (Pi(1) + Pj(1));
+            float F = C * (Pi(0) + Pk(0)) + D * (Pi(1) + Pk(1));
+            float G = 2.0 * (A * (Pk(1) - Pj(1)) - B * (Pk(0) - Pj(0)));
+            if(G==0)
+            {
+                centroid.x = Pi(0);
+                centroid.y = Pi(1);
+                centroid.z = 0.0;
+                centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+            }
+            else
+            {
+                centroid.x = (D * E - B * F) / G;
+                centroid.y = (A * F - C * E) / G;
+                centroid.z = 0.0;
+                centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+            }
+            /*
             float alpha;
             float beta;
             float gamma;
@@ -562,6 +593,7 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             centroid.y = Pcentroid(1);
             centroid.z = 0.0;           
             centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+            */
         } 
 
         return centroid;
@@ -695,4 +727,33 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
 float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)
 {
     return std::sqrt((P1(0)-P2(0))*(P1(0)-P2(0)) + (P1(1)-P2(1))*(P1(1)-P2(1)) + (P1(2)-P2(2))*(P1(2)-P2(2)));
+}
+
+pcl::PointXYZI ObstacleTrack::getRelativeCentroid(pcl::PointXYZI centroid)
+{
+    //set object's tf using map coordinate
+    transform.setOrigin( tf::Vector3(centroid.x, centroid.y, 0.0) );
+    transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
+    tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/map", "/object"));
+
+    //get transform between base_link and object
+    try
+    {
+        tf_listener.waitForTransform("/base_link", "/object", ros::Time(0), ros::Duration(3.0));
+        tf_listener.lookupTransform("/base_link", "/object", ros::Time(0), stamped_transform);
+    }
+    catch (tf::TransformException &ex) {
+        ROS_ERROR("%s",ex.what());
+        ros::Duration(1.0).sleep();
+    }
+
+    // get relative_centroid using transform
+    pcl::PointXYZI relative_centroid;
+    
+    relative_centroid.x = stamped_transform.getOrigin().x();
+    relative_centroid.y = stamped_transform.getOrigin().y();
+    relative_centroid.z = 0.0;
+    relative_centroid.intensity = centroid.intensity;
+
+    return relative_centroid;
 }

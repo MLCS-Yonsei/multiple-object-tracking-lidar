@@ -23,7 +23,8 @@ bool ObstacleTrack::initialize()
         updateParam();
 
         // Create a ROS Publishers 
-        obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("obstacle",1); // the state of objects (pos and vel)
+        //obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("test_optim_node/obstacles",1); // to test on test_optim_node
+        obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("move_base/TebLocalPlannerROS/obstacles",1); // the state of objects (pos and vel)
         debug_pub = nh_.advertise<sensor_msgs::PointCloud2>("debug_msg", 1); // debugging
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("viz", 1); // rviz visualization
@@ -296,7 +297,14 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             debug_pt.header.frame_id = "odom";
             pc1.publish(debug_pt);
         }
-
+        
+        // push 2 centroids to publishObstacles() for predict dx,dy 
+        predicted_centroids.push_back(predicted_centroid);
+        if (predicted_centroids.size()==2)
+        {
+            publishObstacles(predicted_centroids);
+            predicted_centroids.clear();
+        }
         /* Publish state & rviz marker */
         // publishObstacles();
         // publishMarkers();
@@ -316,14 +324,16 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     // ObstacleArray header
     obstacle_array.header.stamp = ros::Time::now();
     obstacle_array.header.frame_id = "map";
-
-    obstacle_array.obstacles[0].id = 1;
-    // obstacle_array.obstacles[0].radius = ; //pointcloud range
+    
+    obstacle_array.obstacles.push_back(costmap_converter::ObstacleMsg());
+    obstacle_array.obstacles[0].id = 99;
+    obstacle_array.obstacles[0].radius = 1; //pointcloud range
     obstacle_array.obstacles[0].header.stamp = ros::Time::now();
+    obstacle_array.obstacles[0].header.frame_id = "map";
 
     // velocity
     float dx; float dy;
-    float dt = predicted_centroids[1].intensity - predicted_centroids[1].intensity;
+    float dt = predicted_centroids[1].intensity - predicted_centroids[0].intensity;
     dx = (predicted_centroids[1].x - predicted_centroids[0].x)/dt;
     dy = (predicted_centroids[1].y - predicted_centroids[0].y)/dt;
 
@@ -342,28 +352,26 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     obstacle_array.obstacles[0].velocities.covariance[35] = .1;
 
     // orientation
-    // float yaw;
-    // yaw = cmath::atan2(dy, dx);
-    // q = tf.transformations.quaternion_from_euler(0,0,yaw);
-    // obstacle_array.obstacles[0].orientation = Quaternion(*q);
+    float yaw;
+    yaw = atan2(dy, dx);
+    tf2::Quaternion Quaternion;
+    Quaternion.setRPY(0,0,yaw);
+    geometry_msgs::Quaternion quat_msg;
+    quat_msg = tf2::toMsg(Quaternion);
+    obstacle_array.obstacles[0].orientation = quat_msg;
 
-    // Polgon of obstacle
-    // geometry_msgs::Point32[] points;
-    // obstacle_array.obstacles[0].polygon.points = points;
-    // obstacle_array.obstacles[0].polygon.points[0].x = 0;
-    // obstacle_array.obstacles[0].polygon.points[0].y = 0;
-    // obstacle_array.obstacles[0].polygon.points[0].z = 0;
+    // Polygon of obstacle
+    std::vector<geometry_msgs::Point32> _points(1);
+    obstacle_array.obstacles[0].polygon.points = _points;
+    obstacle_array.obstacles[0].polygon.points[0].x = predicted_centroids[1].x;
+    obstacle_array.obstacles[0].polygon.points[0].y = predicted_centroids[1].y;
+    obstacle_array.obstacles[0].polygon.points[0].z = 0;
 
-    // if (dy >= 0)
-    // {
-    //     obstacle_array.obstacles[0].polygon.points[0].y = y_0 + (dy*t)%range_y;
-    // }
-    // else
-    // {
-    //     obstacle_array.obstacles[0].polygon.points[0].y = y_0 + (dy*t)%range_y - range_y;
-    // }
 
-    // obstacle_pub.publish(obstacle_array);
+    obstacle_pub.publish(obstacle_array);
+
+    //Completed: move_base의 teb planner에게 obstacle 전달
+    //TODO: navigation 돌리면서 local costmap과 path 확인해보기
 }
 
 void ObstacleTrack::publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters)

@@ -28,6 +28,7 @@
 #include <geometry_msgs/Polygon.h>
 #include <geometry_msgs/Point32.h>
 #include <std_msgs/Float64.h>
+#include <std_msgs/Float32.h>
 #include <std_msgs/Int64.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Twist.h>
@@ -37,6 +38,8 @@
 //tf msgs
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_listener.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 // pcl 
 #include <pcl_conversions/pcl_conversions.h>

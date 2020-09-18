@@ -37,6 +37,8 @@ bool ObstacleTrack::initialize()
         // Initialize Subscriber for input Pointcloud2  
         input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
+
+        time_init = ros::Time::now().toSec(); // for real world test
         
         ROS_INFO_STREAM("ObstacleTrack Initialized");
         return true;
@@ -60,13 +62,13 @@ void ObstacleTrack::updateParam()
     // nh_.param<double>("/kf_tracker_2/smooth_MagnSigma2", smooth_MagnSigma2, 1.0);
     // nh_.param<double>("/kf_tracker_2/smooth_LengthScale", smooth_LengthScale, 1.1);
 
-    nh_.param<double>("/kf_tracker_2/logSigma2_x", logSigma2_x_, -2.6); // measurement noise
-    nh_.param<double>("/kf_tracker_2/logMagnSigma2_x", logMagnSigma2_x_, 3.0);
-    nh_.param<double>("/kf_tracker_2/logLengthScale_x", logLengthScale_x_, -5.0);
+    nh_.param<double>("/kf_tracker_2/logSigma2_x", logSigma2_x_, -5.5); // measurement noise
+    nh_.param<double>("/kf_tracker_2/logMagnSigma2_x", logMagnSigma2_x_, -3.5);
+    nh_.param<double>("/kf_tracker_2/logLengthScale_x", logLengthScale_x_, 0.75);
 
-    nh_.param<double>("/kf_tracker_2/logSigma2_y", logSigma2_y_, -1.4);
-    nh_.param<double>("/kf_tracker_2/logMagnSigma2_y", logMagnSigma2_y_, 4.0);
-    nh_.param<double>("/kf_tracker_2/logLengthScale_y", logLengthScale_y_, -5.0);
+    nh_.param<double>("/kf_tracker_2/logSigma2_y", logSigma2_y_, -5.5);
+    nh_.param<double>("/kf_tracker_2/logMagnSigma2_y", logMagnSigma2_y_, -3.5);
+    nh_.param<double>("/kf_tracker_2/logLengthScale_y", logLengthScale_y_, 0.75);
 
     nh_.param<int>("/kf_tracker_2/data_length", data_length, 10);
     nh_.param<bool>("/kf_tracker_2/param_fix", param_fix, true);
@@ -82,7 +84,17 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     // If this is the first frame, initialize kalman filters for the clustered objects
     if (firstFrame)
     {   
-                // Process the point cloud 
+        if (input->header.stamp.toSec() < 1.0e9)
+        {
+            time_init = 0;
+        }
+        if (input->header.stamp.toSec() - time_init < 0 && t_init==false)
+        {
+            time_init = input->header.stamp.toSec();
+            t_init = true;
+        }
+        
+        // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
@@ -273,12 +285,23 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         if (param_fix == true) { predicted_centroid = IHGP_fixed(centroids); }
         //else if(param_fix == false) { predicted_centroid = IHGP_nonfixed(centroids); }
 
+        // if (predicted_centroids.size() >= 2)
+        // {
+        //     predicted_centroids.erase(predicted_centroids.begin());
+        // }
+        // predicted_centroids.push_back(predicted_centroid);
+
+        // vel_x_debug = (predicted_centroids[1].x - predicted_centroids[0].x)/(predicted_centroids[1].intensity-predicted_centroids[0].intensity);
+        // vel_y_debug = (predicted_centroids[1].y - predicted_centroids[0].y)/(predicted_centroids[1].intensity-predicted_centroids[0].intensity);
+
         e_1 = clock(); 
-        //cout<<input->header.stamp.toSec()<<"," \
+        cout<<(input->header.stamp.toSec()-time_init)<<"," \
             <<centroid.x<<","<<centroid.y<<"," \
             <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
             <<vel_x<<","<<vel_y<<"," \
-            <<((e_1-s_1)*(1e-3))<<endl; 
+            <<((e_1-s_1)*(1e-3))<<endl;  
+            // <<vel_x_debug<<","<<vel_y_debug<<"," 
+            // <<((e_1-s_1)*(1e-3))<<endl; 
 
         // debug
         if (vel_x < 2.0)
@@ -294,7 +317,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
             pcl::toROSMsg(debug_pt_pcl, debug_pt);
             // debug_pt.header.frame_id = "base_link";
-            debug_pt.header.frame_id = "odom";
+            // debug_pt.header.frame_id = "odom";
+            debug_pt.header.frame_id = "map";
             pc1.publish(debug_pt);
         }
         
@@ -307,7 +331,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         }
         /* Publish state & rviz marker */
         // publishObstacles();
-        // publishMarkers();
+        publishMarkers(predicted_centroid);
     }
 } 
 
@@ -374,33 +398,32 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     //TODO: navigation 돌리면서 local costmap과 path 확인해보기
 }
 
-void ObstacleTrack::publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters)
+void ObstacleTrack::publishMarkers(pcl::PointXYZI predicted_centroid)
 {
-    visualization_msgs::MarkerArray clusterMarkers;
-    for (int i=0;i<KFpredictions.size();i++)
+    visualization_msgs::MarkerArray obstacleMarkers;
+    // for (int i=0;i<predicted_centroid.size();i++)
+    int i=0;
     {
         visualization_msgs::Marker m;
 
         m.id=i;
-        m.type=visualization_msgs::Marker::CUBE;
         m.header.frame_id="/map";
-        m.scale.x=0.3;         m.scale.y=0.3;         m.scale.z=0.3;
+        m.type=visualization_msgs::Marker::CYLINDER;
         m.action=visualization_msgs::Marker::ADD;
+        m.scale.x=0.45;         m.scale.y=0.45;         m.scale.z=0.05;
+        
+        m.color.r=0.75;
+        m.color.g=0.0;
+        m.color.b=0.0;
         m.color.a=1.0;
-        m.color.r=i%2?1:0;
-        m.color.g=i%3?1:0;
-        m.color.b=i%4?1:0;
 
-        //geometry_msgs::Point clusterC(clusterCenters.at(objID[i]));
-        geometry_msgs::Point clusterC(KFpredictions[i]);        
-        m.pose.position.x=clusterC.x;
-        m.pose.position.y=clusterC.y;
-        m.pose.position.z=clusterC.z;
+        m.pose.position.x=predicted_centroid.x;
+        m.pose.position.y=predicted_centroid.y;
+        m.pose.position.z=0.0;  
 
-        clusterMarkers.markers.push_back(m);
+        obstacleMarkers.markers.push_back(m);
     }
-    // prevClusterCenters = clusterCenters;
-    marker_pub.publish(clusterMarkers);
+    marker_pub.publish(obstacleMarkers);
 }
 
 void ObstacleTrack::publishObjID()
@@ -557,14 +580,14 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
                 centroid.x = Pi(0);
                 centroid.y = Pi(1);
                 centroid.z = 0.0;
-                centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+                centroid.intensity=input.header.stamp.toSec() - time_init; // used intensity slot(float) for time with GP
             }
             else
             {
                 centroid.x = (D * E - B * F) / G;
                 centroid.y = (A * F - C * E) / G;
                 centroid.z = 0.0;
-                centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
+                centroid.intensity=input.header.stamp.toSec() - time_init; // used intensity slot(float) for time with GP
             }
             /*
             float alpha;
@@ -603,6 +626,10 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
     gp_x.init_step();
     gp_y.init_step();
 
+    // Data adjustment
+    calibration_x = centroids[data_length-1].x;
+    calibration_y = centroids[data_length-1].y;
+
     // Loop through data
     for (int k=0; k<data_length; k++)
     {
@@ -625,10 +652,6 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
     predicted_centroid.y = Eft_y[data_length-1] + calibration_y; 
     predicted_centroid.z = 0.0;
     predicted_centroid.intensity = centroids[data_length-1].intensity;
-
-    // update calibration
-    calibration_x = Eft_x[data_length-1] + calibration_x;
-    calibration_y = Eft_y[data_length-1] + calibration_y;
   
     return predicted_centroid;
 }

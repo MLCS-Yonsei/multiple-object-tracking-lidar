@@ -132,6 +132,8 @@ public:
 
     double vel_x=999;
     double vel_y=999;
+    double vel_x_debug=999;
+    double vel_y_debug=999;
     double calibration_x=0;
     double calibration_y=0;
     std::vector<double> Eft_x;
@@ -148,6 +150,8 @@ public:
     int MaxClusterSize_; // default 600
     float VoxelLeafSize_;
     bool firstFrame = true;
+    bool t_init = false;
+    double time_init;
 
     //tf msgs
     tf::TransformBroadcaster tf_broadcast;
@@ -167,7 +171,7 @@ private:
 
     void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroid);
 
-    void publishMarkers(std::vector<geometry_msgs::Point> KFpredictions, std::vector<geometry_msgs::Point> clusterCenters);
+    void publishMarkers(pcl::PointXYZI predicted_centroid);
 
     void publishObjID();
 

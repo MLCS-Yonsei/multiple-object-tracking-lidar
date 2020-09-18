@@ -28,6 +28,7 @@ void InfiniteHorizonGP::init_InfiniteHorizonGP(const double dt, const Eigen::Mat
     // Solve A and Q (stationary systems)
     A = (F*dt).exp();
     Q = Pinf - A*Pinf*A.transpose();
+    Rc = R;
 
     // Assign measurement model
     H = HH;
@@ -115,6 +116,20 @@ void InfiniteHorizonGP::init_step()
     edata = 0;
     gdata = Eigen::VectorXd::Zero(nparam);
 
+    // Update 
+    // Stationary innovation variance
+    S = (H*PP_update*H.transpose())(0) + Rc;
+    
+    // Stationary gain
+    K = PP_update*H.transpose()/S;
+    
+    // State covariance
+    PF = PP_update - K*H*PP_update;
+    
+    // Pre-calculate
+    HA = (H*A).transpose();
+    AKHA = A-K*H*A;
+
     //
     MF.clear();
 }
@@ -151,6 +166,27 @@ void InfiniteHorizonGP::update(const double &y)
     
 }
 
+double InfiniteHorizonGP::getScale()
+{
+    double scale;
+
+    Eigen::MatrixXd PP = A*PF*A.transpose()+Q;
+    PP_update = A*PF*A.transpose()+Q;
+    Eigen::LDLT<Eigen::MatrixXd> PPldl = PP.ldlt();
+    Eigen::MatrixXd G = PPldl.solve(A*PF).transpose();
+
+    Eigen::VectorXd m_i = MF[MF.size()-1];
+    Eigen::VectorXd m_j = MF[MF.size()-2];
+    double in = (H*(m_i-m_j - G*(m_i-A*m_j)))(0);
+    double out = (H*(m_i-m_j))(0);
+    scale = out/in;
+
+    // Eigen::MatrixXd delta = m-A*MF[MF.size()-2];
+    // scale = (H*G*delta)(0)/((m-MF[MF.size()-2])-G*delta))(0);
+
+    return scale;
+}
+
 std::vector<double> InfiniteHorizonGP::getEft()
 {
     // Solve backward smoother gain
@@ -160,9 +196,9 @@ std::vector<double> InfiniteHorizonGP::getEft()
     Eigen::MatrixXd G = PPldl.solve(A*PF).transpose();
     
     // Solve smoother state covariance
-    Eigen::MatrixXd QQ = PF-G*PP*G.transpose();
-    QQ = .5*(QQ+QQ.transpose()).eval();
-    P = InfiniteHorizonGP::DARE(G,Eigen::MatrixXd::Zero(dim,dim),QQ,0.0);
+    // Eigen::MatrixXd QQ = PF-G*PP*G.transpose();
+    // QQ = .5*(QQ+QQ.transpose()).eval();
+    // P = InfiniteHorizonGP::DARE(G,Eigen::MatrixXd::Zero(dim,dim),QQ,0.0);
     
     // Output vector
     std::vector<double> Eft;

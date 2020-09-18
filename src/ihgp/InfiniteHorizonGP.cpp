@@ -35,7 +35,8 @@ void InfiniteHorizonGP::init_InfiniteHorizonGP(const double dt, const Eigen::Mat
     
     // Solve the discrete algebraic Riccati equation
     Eigen::MatrixXd PP = InfiniteHorizonGP::DARE(A,H,Q,R);
-    
+    PP_update = PP;
+
     // Stationary innovation variance
     S = (H*PP*H.transpose())(0) + R;
     

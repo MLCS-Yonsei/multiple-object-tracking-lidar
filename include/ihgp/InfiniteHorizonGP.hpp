@@ -62,6 +62,7 @@ private:
     /* State mean and covariance */
     Eigen::VectorXd m;
     Eigen::MatrixXd P;
+    Eigen::MatrixXd PP_update;
     Eigen::MatrixXd PF;
     Eigen::VectorXd* dm;
     std::vector<Eigen::VectorXd> MF;

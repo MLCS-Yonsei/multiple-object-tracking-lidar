@@ -326,8 +326,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         predicted_centroids.push_back(predicted_centroid);
         if (predicted_centroids.size()==2)
         {
-            publishObstacles(predicted_centroids);
-            predicted_centroids.clear();
+            publishObstacles(predicted_centroids, input);
+            predicted_centroids.erase(predicted_centroids.begin());
         }
         /* Publish state & rviz marker */
         // publishObstacles();
@@ -340,19 +340,19 @@ void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
     map_copy = map_msg;
 }
 
-void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids)
+void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids, const sensor_msgs::PointCloud2ConstPtr& input)
 {
     costmap_converter::ObstacleArrayMsg obstacle_array;
     costmap_converter::ObstacleMsg obstacle;
 
     // ObstacleArray header
-    obstacle_array.header.stamp = ros::Time::now();
+    obstacle_array.header.stamp = input->header.stamp;
     obstacle_array.header.frame_id = "map";
     
     obstacle_array.obstacles.push_back(costmap_converter::ObstacleMsg());
     obstacle_array.obstacles[0].id = 99;
-    obstacle_array.obstacles[0].radius = 1; //pointcloud range
-    obstacle_array.obstacles[0].header.stamp = ros::Time::now();
+    obstacle_array.obstacles[0].radius = obstacle_radius; //pointcloud range
+    obstacle_array.obstacles[0].header.stamp = input->header.stamp;
     obstacle_array.obstacles[0].header.frame_id = "map";
 
     // velocity
@@ -566,7 +566,7 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
                     dist_max = dist;
                 }
             }
-
+            
             // 3. circumcenter coordinates from cross and dot products
             float A = Pj(0) - Pi(0);
             float B = Pj(1) - Pi(1);
@@ -589,6 +589,11 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
                 centroid.z = 0.0;
                 centroid.intensity=input.header.stamp.toSec() - time_init; // used intensity slot(float) for time with GP
             }
+
+            // set radius for publishObstacles
+            Vector3d V_centroid(centroid.x, centroid.y, centroid.z);
+            obstacle_radius = euc_dist(V_centroid, Pi);
+            
             /*
             float alpha;
             float beta;
@@ -617,6 +622,8 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
             */
         } 
+
+
 
         return centroid;
 } 

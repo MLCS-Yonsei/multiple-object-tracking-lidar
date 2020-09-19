@@ -159,6 +159,9 @@ public:
     tf::TransformListener tf_listener;
     tf::StampedTransform stamped_transform;
 
+    //radius
+    float obstacle_radius;
+    
 private:
 
     ros::NodeHandle nh_;
@@ -169,7 +172,7 @@ private:
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
 
-    void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroid);
+    void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids, const sensor_msgs::PointCloud2ConstPtr& input);
 
     void publishMarkers(pcl::PointXYZI predicted_centroid);
 

@@ -9,6 +9,9 @@ int main(int argc, char **argv)
     ros::init (argc,argv,"kf_tracker_2");
     ros::NodeHandle nh;
     ObstacleTrack obstacles;
+    
+    float frequency;
+    nh.param<float>("/kf_tracker_2/frequency", frequency, 10.0);
 
     if(!obstacles.initialize())
     {
@@ -18,7 +21,7 @@ int main(int argc, char **argv)
     else{
       ROS_INFO_STREAM_NAMED("%s INITIALIZED SUCCESSFULLY!", ros::this_node::getName().c_str());
       while (nh.ok()) {
-        // ros::Duration(0.05).sleep();
+        ros::Duration(1/frequency).sleep(); // lidar frequency에 동기화 
         ros::spinOnce();
       }
     }

@@ -114,10 +114,7 @@ public:
     InfiniteHorizonGP gp_y;
 
     bool param_fix;
-    float dt_gp; 
-    // double smooth_Sigma2;
-    // double smooth_MagnSigma2;
-    // double smooth_LengthScale;    
+    float dt_gp;    
     double logSigma2_x_;
     double logMagnSigma2_x_;
     double logLengthScale_x_;

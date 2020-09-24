@@ -208,7 +208,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::VoxelGrid<pcl::PointXYZ> vg2;
         pcl::PointCloud<pcl::PointXYZ> cloud_2;
         vg2.setInputCloud (cloud_1.makeShared());
-        vg2.setLeafSize (0.5*VoxelLeafSize_, 0.5*VoxelLeafSize_, 0.1*VoxelLeafSize_); // Leaf size 0.1m
+        vg2.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
         vg2.filter (cloud_2);
 
         // Remove static obstacles from occupied grid map msg
@@ -251,19 +251,14 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
         // Change map coordinate centroid to base_link coordinate centroid 
         // centroid = getRelativeCentroid(centroid);
-        //cout << centroid.x <<" "<<centroid.y<<endl;
         
         // centroids array update
         centroids.erase(centroids.begin());
         centroids.push_back(centroid);
 
-        /* Predict with GP 
-        predicted_centroid: i, predicted centroid from GP
-        centroids: (i-10)~(i), predicted centroid stack from GP
-        centroid: i, observed centroid */
+        // Predict with GP 
         pcl::PointXYZI predicted_centroid;
         pcl::PointXYZI predicted_velocity;
-
         if (param_fix == true) 
         { 
             predicted_centroid = IHGP_fixed(centroids, "pos"); 
@@ -278,10 +273,10 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         //     <<predicted_velocity.x<<","<<predicted_velocity.y<<"," \
         //     <<((e_1-s_1)*(1e-3))<<endl;  
 
-        /* Publish state & rviz marker */
+        // Publish state & rviz marker 
         publishObstacles(predicted_centroid, predicted_velocity, input);
         publishMarkers(predicted_centroid);
-    }
+    } 
 } 
 
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)

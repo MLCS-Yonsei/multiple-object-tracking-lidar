@@ -95,10 +95,6 @@ public:
     ros::Subscriber input_sub; // input Pointclouds 
     ros::Subscriber map_sub; // Occupied grid map
 
-    // debug
-    ros::Publisher pc1;
-    ros::Publisher pc2;
-    ros::Publisher pc3;
     
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
@@ -106,7 +102,6 @@ public:
     
     int data_length=10;
     std::vector<pcl::PointXYZI> centroids; // t~(t-10) cluster Centers stack
-    std::vector<pcl::PointXYZI> predicted_centroids; // t~(t-1) cluster Centers stack (GP prediction)
     std::vector<int> objID;
     nav_msgs::OccupancyGrid map_copy;
 
@@ -132,10 +127,8 @@ public:
 
     double vel_x=999;
     double vel_y=999;
-    double vel_x_debug=999;
-    double vel_y_debug=999;
-    double calibration_x=0;
-    double calibration_y=0;
+    double mean_x=0;
+    double mean_y=0;
     std::vector<double> Eft_x;
     std::vector<double> Eft_y;
     std::vector<double> logLengthScales_x;
@@ -172,7 +165,9 @@ private:
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
 
-    void publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids, const sensor_msgs::PointCloud2ConstPtr& input);
+    void publishObstacles(pcl::PointXYZI predicted_centroid, \
+        pcl::PointXYZI predicted_velocity,\
+        const sensor_msgs::PointCloud2ConstPtr& input);
 
     void publishMarkers(pcl::PointXYZI predicted_centroid);
 
@@ -187,12 +182,11 @@ private:
         const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
         const sensor_msgs::PointCloud2 input);
 
-    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids);
+    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable);
 
     pcl::PointXYZI IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids);
 
     float euc_dist(Vector3d P1, Vector3d P2);
 
     pcl::PointXYZI getRelativeCentroid(pcl::PointXYZI centroid);
-
 };

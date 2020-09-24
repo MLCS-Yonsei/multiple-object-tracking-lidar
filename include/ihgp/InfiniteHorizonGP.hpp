@@ -27,8 +27,6 @@ public:
     
     /* Get marginal likelihood gradient */
     Eigen::VectorXd getLikDeriv();
-    
-    double getScale();
 
     /* Get the marginal posterior mean */
     std::vector<double> getEft();

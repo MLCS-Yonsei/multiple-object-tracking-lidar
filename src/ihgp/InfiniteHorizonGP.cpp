@@ -167,27 +167,6 @@ void InfiniteHorizonGP::update(const double &y)
     
 }
 
-double InfiniteHorizonGP::getScale()
-{
-    double scale;
-
-    Eigen::MatrixXd PP = A*PF*A.transpose()+Q;
-    PP_update = A*PF*A.transpose()+Q;
-    Eigen::LDLT<Eigen::MatrixXd> PPldl = PP.ldlt();
-    Eigen::MatrixXd G = PPldl.solve(A*PF).transpose();
-
-    Eigen::VectorXd m_i = MF[MF.size()-1];
-    Eigen::VectorXd m_j = MF[MF.size()-2];
-    double in = (H*(m_i-m_j - G*(m_i-A*m_j)))(0);
-    double out = (H*(m_i-m_j))(0);
-    scale = out/in;
-
-    // Eigen::MatrixXd delta = m-A*MF[MF.size()-2];
-    // scale = (H*G*delta)(0)/((m-MF[MF.size()-2])-G*delta))(0);
-
-    return scale;
-}
-
 std::vector<double> InfiniteHorizonGP::getEft()
 {
     // Solve backward smoother gain

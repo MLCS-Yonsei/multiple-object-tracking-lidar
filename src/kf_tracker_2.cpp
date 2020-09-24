@@ -23,20 +23,13 @@ bool ObstacleTrack::initialize()
         updateParam();
 
         // Create a ROS Publishers 
-        //obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("test_optim_node/obstacles",1); // to test on test_optim_node
         obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("move_base/TebLocalPlannerROS/obstacles",1); // the state of objects (pos and vel)
-        debug_pub = nh_.advertise<sensor_msgs::PointCloud2>("debug_msg", 1); // debugging
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("viz", 1); // rviz visualization
 
-        // debug for pcl
-        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud1", 1);
-        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud2", 1);
-        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud3", 1);
-
-        // Initialize Subscriber for input Pointcloud2  
-        input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
+        // Initialize Subscriber for input Pointcloud2 
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
+        input_sub = nh_.subscribe("input_pointcloud", 10, &ObstacleTrack::cloudCallback, this);
 
         time_init = ros::Time::now().toSec(); // for real world test
         
@@ -125,11 +118,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         cloud_3 = removeStatic(cloud_2, cloud_3);
         *cloud_filtered = cloud_3;
 
-        sensor_msgs::PointCloud2 cloud_filtered_ros;
-        pcl::toROSMsg(*cloud_filtered, cloud_filtered_ros);
-        cloud_filtered_ros.header.frame_id = "map";
-        pc1.publish(cloud_filtered_ros);
-
         // Creating the KdTree from voxel point cloud 
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud (cloud_filtered);
@@ -153,11 +141,6 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointXYZI centroid;
         centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
 
-        // Change map coordinate centroid to base_link coordinate centroid 
-        // centroid = getRelativeCentroid(centroid);
-        //cout << centroid.x <<" "<<centroid.y<<endl;
-
-     
         if (centroids.size() >= data_length) // centroids array update
         {
             firstFrame = false;
@@ -196,16 +179,13 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
                 model_y.setMagnSigma2(0.1); 
                 model_y.setLengthScale(0.1); 
             }
-
-            calibration_x = centroid.x;
-            calibration_y = centroid.y;
         }
         centroids.push_back(centroid);
     }
  
     else
     { 
-        s_1 = clock();
+        // s_1 = clock();
         // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
@@ -281,56 +261,25 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         predicted_centroid: i, predicted centroid from GP
         centroids: (i-10)~(i), predicted centroid stack from GP
         centroid: i, observed centroid */
-        pcl::PointXYZI predicted_centroid; 
-        if (param_fix == true) { predicted_centroid = IHGP_fixed(centroids); }
+        pcl::PointXYZI predicted_centroid;
+        pcl::PointXYZI predicted_velocity;
+
+        if (param_fix == true) 
+        { 
+            predicted_centroid = IHGP_fixed(centroids, "pos"); 
+            predicted_velocity = IHGP_fixed(centroids, "vel");
+        }
         //else if(param_fix == false) { predicted_centroid = IHGP_nonfixed(centroids); }
 
-        // if (predicted_centroids.size() >= 2)
-        // {
-        //     predicted_centroids.erase(predicted_centroids.begin());
-        // }
-        // predicted_centroids.push_back(predicted_centroid);
+        // e_1 = clock(); 
+        // cout<<(centroids[data_length-1].intensity-time_init)<<"," \
+        //     <<centroids[data_length-1].x<<","<<centroids[data_length-1].y<<"," \
+        //     <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
+        //     <<predicted_velocity.x<<","<<predicted_velocity.y<<"," \
+        //     <<((e_1-s_1)*(1e-3))<<endl;  
 
-        // vel_x_debug = (predicted_centroids[1].x - predicted_centroids[0].x)/(predicted_centroids[1].intensity-predicted_centroids[0].intensity);
-        // vel_y_debug = (predicted_centroids[1].y - predicted_centroids[0].y)/(predicted_centroids[1].intensity-predicted_centroids[0].intensity);
-
-        e_1 = clock(); 
-        cout<<(input->header.stamp.toSec()-time_init)<<"," \
-            <<centroid.x<<","<<centroid.y<<"," \
-            <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
-            <<vel_x<<","<<vel_y<<"," \
-            <<((e_1-s_1)*(1e-3))<<endl;  
-            // <<vel_x_debug<<","<<vel_y_debug<<"," 
-            // <<((e_1-s_1)*(1e-3))<<endl; 
-
-        // debug
-        if (vel_x < 2.0)
-        {
-            // cout<<"debug start"<<endl;
-            pcl::PointCloud<pcl::PointXYZ> debug_pt_pcl;
-            pcl::PointXYZ temp_pt;
-            sensor_msgs::PointCloud2 debug_pt;
-            temp_pt.x = predicted_centroid.x;
-            temp_pt.y = predicted_centroid.y;
-            temp_pt.z = 0.0;
-            debug_pt_pcl.push_back(temp_pt);
-
-            pcl::toROSMsg(debug_pt_pcl, debug_pt);
-            // debug_pt.header.frame_id = "base_link";
-            // debug_pt.header.frame_id = "odom";
-            debug_pt.header.frame_id = "map";
-            pc1.publish(debug_pt);
-        }
-        
-        // push 2 centroids to publishObstacles() for predict dx,dy 
-        predicted_centroids.push_back(predicted_centroid);
-        if (predicted_centroids.size()==2)
-        {
-            publishObstacles(predicted_centroids, input);
-            predicted_centroids.erase(predicted_centroids.begin());
-        }
         /* Publish state & rviz marker */
-        // publishObstacles();
+        publishObstacles(predicted_centroid, predicted_velocity, input);
         publishMarkers(predicted_centroid);
     }
 } 
@@ -340,7 +289,7 @@ void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
     map_copy = map_msg;
 }
 
-void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centroids, const sensor_msgs::PointCloud2ConstPtr& input)
+void ObstacleTrack::publishObstacles(pcl::PointXYZI position, pcl::PointXYZI velocity, const sensor_msgs::PointCloud2ConstPtr& input)
 {
     costmap_converter::ObstacleArrayMsg obstacle_array;
     costmap_converter::ObstacleMsg obstacle;
@@ -356,13 +305,8 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     obstacle_array.obstacles[0].header.frame_id = "map";
 
     // velocity
-    float dx; float dy;
-    float dt = predicted_centroids[1].intensity - predicted_centroids[0].intensity;
-    dx = (predicted_centroids[1].x - predicted_centroids[0].x)/dt;
-    dy = (predicted_centroids[1].y - predicted_centroids[0].y)/dt;
-
-    obstacle_array.obstacles[0].velocities.twist.linear.x = dx;
-    obstacle_array.obstacles[0].velocities.twist.linear.y = dy;
+    obstacle_array.obstacles[0].velocities.twist.linear.x = velocity.x;
+    obstacle_array.obstacles[0].velocities.twist.linear.y = velocity.y;
     obstacle_array.obstacles[0].velocities.twist.linear.z = 0;
     obstacle_array.obstacles[0].velocities.twist.angular.x = 0;
     obstacle_array.obstacles[0].velocities.twist.angular.y = 0;
@@ -377,7 +321,7 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
 
     // orientation
     float yaw;
-    yaw = atan2(dy, dx);
+    yaw = atan2(velocity.y, velocity.x);
     tf2::Quaternion Quaternion;
     Quaternion.setRPY(0,0,yaw);
     geometry_msgs::Quaternion quat_msg;
@@ -387,8 +331,8 @@ void ObstacleTrack::publishObstacles(std::vector<pcl::PointXYZI> predicted_centr
     // Polygon of obstacle
     std::vector<geometry_msgs::Point32> _points(1);
     obstacle_array.obstacles[0].polygon.points = _points;
-    obstacle_array.obstacles[0].polygon.points[0].x = predicted_centroids[1].x;
-    obstacle_array.obstacles[0].polygon.points[0].y = predicted_centroids[1].y;
+    obstacle_array.obstacles[0].polygon.points[0].x = position.x;
+    obstacle_array.obstacles[0].polygon.points[0].y = position.y;
     obstacle_array.obstacles[0].polygon.points[0].z = 0;
 
 
@@ -628,35 +572,69 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
         return centroid;
 } 
 
-pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
+pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable)
 {
     gp_x.init_step();
     gp_y.init_step();
 
-    // Data adjustment
-    calibration_x = centroids[data_length-1].x;
-    calibration_y = centroids[data_length-1].y;
+    // Data pre-precessing
+    double mean_x;
+    double mean_y;
+    std::vector<double> vx_raw; 
+    std::vector<double> vy_raw; 
 
-    // Loop through data
-    for (int k=0; k<data_length; k++)
+    int gp_data_len;
+    if(variable == "vel")
     {
-        gp_x.update(centroids[k].x - calibration_x);
-        gp_y.update(centroids[k].y - calibration_y);
+        gp_data_len = data_length-2;
+              
+        for (int k=0; k<=gp_data_len; k++)
+        {
+            double vel = (centroids[k+1].x - centroids[k].x)/dt_gp;
+            vx_raw.push_back(vel);
+            mean_x += vel;
+
+            vel = (centroids[k+1].y - centroids[k].y)/dt_gp;
+            vy_raw.push_back(vel);
+            mean_y += vel;
+        }
+        mean_x = mean_x/(gp_data_len+1);
+        mean_y = mean_y/(gp_data_len+1);
+    }
+    else if(variable == "pos")
+    {
+        gp_data_len = data_length-1;
+
+        mean_x = centroids[gp_data_len].x;
+        mean_y = centroids[gp_data_len].y;
+    }
+    
+    // Loop through data
+    if(variable == "vel")
+    {
+        for (int k=0; k<=gp_data_len; k++)
+        {
+            gp_x.update(vx_raw[k] - mean_x);
+            gp_y.update(vy_raw[k] - mean_y);
+        }
+    }
+    else if(variable == "pos")
+    {
+        for (int k=0; k<=gp_data_len; k++)
+        {
+            gp_x.update(centroids[k].x - mean_x);
+            gp_y.update(centroids[k].y - mean_y);
+        }
     }
 
     // Pull out the marginal mean and variance estimates
     Eft_x = gp_x.getEft();
     Eft_y = gp_y.getEft();
 
-    // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
-    // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
-    vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
-    vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
-
     // make PCL::PointXYZI data
     pcl::PointXYZI predicted_centroid;
-    predicted_centroid.x = Eft_x[data_length-1] + calibration_x; 
-    predicted_centroid.y = Eft_y[data_length-1] + calibration_y; 
+    predicted_centroid.x = Eft_x[gp_data_len] + mean_x;
+    predicted_centroid.y = Eft_y[gp_data_len] + mean_y;
     predicted_centroid.z = 0.0;
     predicted_centroid.intensity = centroids[data_length-1].intensity;
   
@@ -665,92 +643,93 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids)
 
 pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids)
 {
-    // Do inference
-    gp_x.init_InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
-    gp_y.init_InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
+    // // Do inference
+    // gp_x.init_InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
+    // gp_y.init_InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
 
-    // Loop through data
-    for (int k=0; k<data_length; k++)
-    {
-        gp_x.update(centroids[k].x - calibration_x);
-        gp_y.update(centroids[k].y - calibration_y);
-    }
+    // // Loop through data
+    // for (int k=0; k<data_length; k++)
+    // {
+    //     gp_x.update(centroids[k].x - calibration_x);
+    //     gp_y.update(centroids[k].y - calibration_y);
+    // }
     
-    // Pull out the gradient (account for log-transformation)
-    double logSigma2_x = log(model_x.getSigma2());
-    double logMagnSigma2_x = log(model_x.getMagnSigma2());
-    double logLengthScale_x = log(model_x.getLengthScale());
-    double dLikdlogSigma2_x = model_x.getSigma2() * gp_x.getLikDeriv()(0);
-    double dLikdlogMagnSigma2_x = model_x.getMagnSigma2() * gp_x.getLikDeriv()(1);
-    double dLikdlogLengthScale_x = model_x.getLengthScale() * gp_x.getLikDeriv()(2);
+    // // Pull out the gradient (account for log-transformation)
+    // double logSigma2_x = log(model_x.getSigma2());
+    // double logMagnSigma2_x = log(model_x.getMagnSigma2());
+    // double logLengthScale_x = log(model_x.getLengthScale());
+    // double dLikdlogSigma2_x = model_x.getSigma2() * gp_x.getLikDeriv()(0);
+    // double dLikdlogMagnSigma2_x = model_x.getMagnSigma2() * gp_x.getLikDeriv()(1);
+    // double dLikdlogLengthScale_x = model_x.getLengthScale() * gp_x.getLikDeriv()(2);
 
-    double logSigma2_y = log(model_y.getSigma2());
-    double logMagnSigma2_y = log(model_y.getMagnSigma2());
-    double logLengthScale_y = log(model_y.getLengthScale());
-    double dLikdlogSigma2_y = model_y.getSigma2() * gp_y.getLikDeriv()(0);
-    double dLikdlogMagnSigma2_y = model_y.getMagnSigma2() * gp_y.getLikDeriv()(1);
-    double dLikdlogLengthScale_y = model_y.getLengthScale() * gp_y.getLikDeriv()(2);
+    // double logSigma2_y = log(model_y.getSigma2());
+    // double logMagnSigma2_y = log(model_y.getMagnSigma2());
+    // double logLengthScale_y = log(model_y.getLengthScale());
+    // double dLikdlogSigma2_y = model_y.getSigma2() * gp_y.getLikDeriv()(0);
+    // double dLikdlogMagnSigma2_y = model_y.getMagnSigma2() * gp_y.getLikDeriv()(1);
+    // double dLikdlogLengthScale_y = model_y.getLengthScale() * gp_y.getLikDeriv()(2);
     
-    // Do the gradient descent step
-    // logSigma2_x = logSigma2_x - 0.1*dLikdlogSigma2_x;
-    logMagnSigma2_x = logMagnSigma2_x - 0.1*dLikdlogMagnSigma2_x;
-    logLengthScale_x = logLengthScale_x - 0.01*dLikdlogLengthScale_x;
+    // // Do the gradient descent step
+    // // logSigma2_x = logSigma2_x - 0.1*dLikdlogSigma2_x;
+    // logMagnSigma2_x = logMagnSigma2_x - 0.1*dLikdlogMagnSigma2_x;
+    // logLengthScale_x = logLengthScale_x - 0.01*dLikdlogLengthScale_x;
 
-    // logSigma2_y = logSigma2_y - 0.1*dLikdlogSigma2_y;
-    logMagnSigma2_y = logMagnSigma2_y - 0.1*dLikdlogMagnSigma2_y;
-    logLengthScale_y = logLengthScale_y - 0.01*dLikdlogLengthScale_y;
+    // // logSigma2_y = logSigma2_y - 0.1*dLikdlogSigma2_y;
+    // logMagnSigma2_y = logMagnSigma2_y - 0.1*dLikdlogMagnSigma2_y;
+    // logLengthScale_y = logLengthScale_y - 0.01*dLikdlogLengthScale_y;
     
-    // Introduce contraints to keep the behavior better in control
-    // if (logSigma2_x < -10) { logSigma2_x = -10; } else if (logSigma2_x > 10) { logSigma2_x = 10; }
-    if (logMagnSigma2_x < -10) { logMagnSigma2_x = -10; } else if (logMagnSigma2_x > 10) { logMagnSigma2_x = 10; }
-    if (logLengthScale_x < -10) { logLengthScale_x = -10; } else if (logLengthScale_x > 10) { logLengthScale_x = 10; }
+    // // Introduce contraints to keep the behavior better in control
+    // // if (logSigma2_x < -10) { logSigma2_x = -10; } else if (logSigma2_x > 10) { logSigma2_x = 10; }
+    // if (logMagnSigma2_x < -10) { logMagnSigma2_x = -10; } else if (logMagnSigma2_x > 10) { logMagnSigma2_x = 10; }
+    // if (logLengthScale_x < -10) { logLengthScale_x = -10; } else if (logLengthScale_x > 10) { logLengthScale_x = 10; }
 
-    // if (logSigma2_y < -10) { logSigma2_y = -10; } else if (logSigma2_y > 10) { logSigma2_y = 10; }
-    if (logMagnSigma2_y < -10) { logMagnSigma2_y = -10; } else if (logMagnSigma2_y > 10) { logMagnSigma2_y = 10; }
-    if (logLengthScale_y < -10) { logLengthScale_y = -10; } else if (logLengthScale_y > 10) { logLengthScale_y = 10; }
+    // // if (logSigma2_y < -10) { logSigma2_y = -10; } else if (logSigma2_y > 10) { logSigma2_y = 10; }
+    // if (logMagnSigma2_y < -10) { logMagnSigma2_y = -10; } else if (logMagnSigma2_y > 10) { logMagnSigma2_y = 10; }
+    // if (logLengthScale_y < -10) { logLengthScale_y = -10; } else if (logLengthScale_y > 10) { logLengthScale_y = 10; }
 
-    // Update the model
-    // model_x.setSigma2(exp(logSigma2_x));
-    model_x.setMagnSigma2(exp(logMagnSigma2_x));
-    model_x.setLengthScale(exp(logLengthScale_x));
+    // // Update the model
+    // // model_x.setSigma2(exp(logSigma2_x));
+    // model_x.setMagnSigma2(exp(logMagnSigma2_x));
+    // model_x.setLengthScale(exp(logLengthScale_x));
 
-    // model_y.setSigma2(exp(logSigma2_y));
-    model_y.setMagnSigma2(exp(logMagnSigma2_y));
-    model_y.setLengthScale(exp(logLengthScale_y));
+    // // model_y.setSigma2(exp(logSigma2_y));
+    // model_y.setMagnSigma2(exp(logMagnSigma2_y));
+    // model_y.setLengthScale(exp(logLengthScale_y));
     
-    // Check if this went bad and re-initialize
-    if (isnan(model_x.getMagnSigma2()) | isnan(model_x.getLengthScale()) |
-        isinf(model_x.getMagnSigma2()) | isinf(model_x.getLengthScale())) {
-        model_x.setMagnSigma2(1.0);
-        model_x.setLengthScale(1.0);
-        cout<<"[error] Bad parameters."<<endl;
-    }
-        if (isnan(model_y.getMagnSigma2()) | isnan(model_y.getLengthScale()) |
-        isinf(model_y.getMagnSigma2()) | isinf(model_y.getLengthScale())) {
-        model_y.setMagnSigma2(1.0);
-        model_y.setLengthScale(1.0);
-        cout<<"[error] Bad parameters."<<endl;
-    }
+    // // Check if this went bad and re-initialize
+    // if (isnan(model_x.getMagnSigma2()) | isnan(model_x.getLengthScale()) |
+    //     isinf(model_x.getMagnSigma2()) | isinf(model_x.getLengthScale())) {
+    //     model_x.setMagnSigma2(1.0);
+    //     model_x.setLengthScale(1.0);
+    //     cout<<"[error] Bad parameters."<<endl;
+    // }
+    //     if (isnan(model_y.getMagnSigma2()) | isnan(model_y.getLengthScale()) |
+    //     isinf(model_y.getMagnSigma2()) | isinf(model_y.getLengthScale())) {
+    //     model_y.setMagnSigma2(1.0);
+    //     model_y.setLengthScale(1.0);
+    //     cout<<"[error] Bad parameters."<<endl;
+    // }
 
-    // Pull out the marginal mean and variance estimates
-    Eft_x = gp_x.getEft();
-    Eft_y = gp_y.getEft();
+    // // Pull out the marginal mean and variance estimates
+    // Eft_x = gp_x.getEft();
+    // Eft_y = gp_y.getEft();
 
-    // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
-    // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
-    vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
-    vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
+    // // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
+    // // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
+    // vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
+    // vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
 
-    pcl::PointXYZI predicted_centroid;
-    predicted_centroid.x = Eft_x[data_length-1] + calibration_x;
-    predicted_centroid.y = Eft_y[data_length-1] + calibration_y;
-    predicted_centroid.z = 0.0;
-    predicted_centroid.intensity = centroids[data_length-1].intensity;
+    // pcl::PointXYZI predicted_centroid;
+    // predicted_centroid.x = Eft_x[data_length-1] + calibration_x;
+    // predicted_centroid.y = Eft_y[data_length-1] + calibration_y;
+    // predicted_centroid.z = 0.0;
+    // predicted_centroid.intensity = centroids[data_length-1].intensity;
 
-    calibration_x = Eft_x[data_length-1] + calibration_x;
-    calibration_y = Eft_y[data_length-1] + calibration_y;
+    // calibration_x = Eft_x[data_length-1] + calibration_x;
+    // calibration_y = Eft_y[data_length-1] + calibration_y;
     
-    return predicted_centroid;
+    // return predicted_centroid;
+    ;
 }
 
 float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)

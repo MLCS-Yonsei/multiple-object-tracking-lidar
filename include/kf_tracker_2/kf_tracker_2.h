@@ -5,6 +5,8 @@
 #include <iterator>
 #include <time.h> // We don't need it for run. It's for Runtime check
 #include <cmath>
+#include <vector>
+#include <memory>
 
 // Filter
 #include "kf_tracker_2/featureDetection.h"
@@ -94,6 +96,8 @@ public:
     float VoxelLeafSize_;
     bool firstFrame = true;
 
+    std::vector<std::shared_ptr<cv::KalmanFilter>> KF_vec;
+
 private:
 
     ros::NodeHandle nh_;
@@ -114,10 +118,10 @@ private:
         pcl::PointCloud<pcl::PointXYZ> input_cloud, \
         pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
 
-    void initKalmanFilters(const sensor_msgs::PointCloud2ConstPtr& input);
+    void initKalmanFilters(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered);
 
-    void KFT(const std::vector<geometry_msgs::Point> cc);
-
+    void KFT(const sensor_msgs::PointCloud2ConstPtr& input, const std::vector<geometry_msgs::Point> cc);
+    
     std::pair<int,int> findIndexOfMin(std::vector<std::vector<float>> distMat);
 
     // calculate euclidean distance of two points

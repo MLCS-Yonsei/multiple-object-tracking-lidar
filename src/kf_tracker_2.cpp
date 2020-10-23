@@ -25,7 +25,11 @@ bool ObstacleTrack::initialize()
         // Create a ROS Publishers 
         obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("move_base/TebLocalPlannerROS/obstacles",1); // the state of objects (pos and vel)
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
-        marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("viz", 1); // rviz visualization
+        marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 1); // rviz visualization
+
+        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",1);
+        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",1);
+        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",1);
 
         // Initialize Subscriber for input Pointcloud2 
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
@@ -92,31 +96,36 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
 
+        // filter pointcloud only z>0 and update to z=0
+        pcl::PointCloud<pcl::PointXYZ> cloud_0;
+        for (const auto& point: input_cloud)
+        {
+            if(point.z > 0.0)
+            {
+                cloud_0.push_back(point);
+                cloud_0.back().z = 0;
+            }
+        }
+
         // Voxel Down sampling 
         pcl::VoxelGrid<pcl::PointXYZ> vg;
         pcl::PointCloud<pcl::PointXYZ> cloud_1;
-        vg.setInputCloud (input_cloud.makeShared());
+        vg.setInputCloud (cloud_0.makeShared());
         vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
         vg.filter (cloud_1);
-
-        // 2D Projection
-        for(int l=0; l!=cloud_1.points.size(); l++)
-        {
-            cloud_1.points[l].z=0.0;
-        }
-
-        // Voxel Down sampling
-        pcl::VoxelGrid<pcl::PointXYZ> vg2;
-        pcl::PointCloud<pcl::PointXYZ> cloud_2;
-        vg2.setInputCloud (cloud_1.makeShared());
-        vg2.setLeafSize (0.5*VoxelLeafSize_, 0.5*VoxelLeafSize_, 0.1*VoxelLeafSize_); // Leaf size 0.1m
-        vg2.filter (cloud_2);
 
         // Remove static obstacles from occupied grid map msg
         pcl::PointCloud<pcl::PointXYZ> cloud_3;
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-        cloud_3 = removeStatic(cloud_2, cloud_3);
+        cloud_3 = removeStatic(cloud_1, cloud_3);
         *cloud_filtered = cloud_3;
+
+        // exit callback if no obstacles
+        if (cloud_filtered->empty())
+        {
+            ROS_INFO("No obstacles around");
+            return;
+        }
 
         // Creating the KdTree from voxel point cloud 
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
@@ -136,6 +145,9 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
         // Extract the clusters out of pc and save indices in cluster_indices.
         ec.extract (cluster_indices); // most of Runtime are used from this step.
+
+        if (cluster_indices.empty())
+            return;
 
         // Predict obstacle center with circumcenter method
         pcl::PointXYZI centroid;
@@ -191,31 +203,42 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
 
+        // filter pointcloud only z>0 and update to z==0
+        pcl::PointCloud<pcl::PointXYZ> cloud_0;
+        for (const auto& point: input_cloud)
+        {
+            if(point.z > 0.0)
+            {
+                cloud_0.push_back(point);
+                cloud_0.back().z = 0;
+            }
+        }
+
         // Voxel Down sampling 
         pcl::VoxelGrid<pcl::PointXYZ> vg;
         pcl::PointCloud<pcl::PointXYZ> cloud_1;
-        vg.setInputCloud (input_cloud.makeShared());
+        vg.setInputCloud (cloud_0.makeShared());
         vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
         vg.filter (cloud_1);
 
-        // 2D Projection
-        for(int l=0; l!=cloud_1.points.size(); l++)
-        {
-            cloud_1.points[l].z=0.0;
-        }
-
-        // Voxel Down sampling
-        pcl::VoxelGrid<pcl::PointXYZ> vg2;
-        pcl::PointCloud<pcl::PointXYZ> cloud_2;
-        vg2.setInputCloud (cloud_1.makeShared());
-        vg2.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
-        vg2.filter (cloud_2);
+        // publish pointcloud for debuging 
+        sensor_msgs::PointCloud2 cloud_debug;
+        pcl::toROSMsg(cloud_1, cloud_debug);
+        cloud_debug.header.frame_id = "map";
+        pc1.publish(cloud_debug);
 
         // Remove static obstacles from occupied grid map msg
         pcl::PointCloud<pcl::PointXYZ> cloud_3;
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-        cloud_3 = removeStatic(cloud_2, cloud_3);
+        cloud_3 = removeStatic(cloud_1, cloud_3);
         *cloud_filtered = cloud_3;
+
+        // publish pointcloud for debuging 
+        sensor_msgs::PointCloud2 cloud_debug2;
+        pcl::toROSMsg(cloud_3, cloud_debug2);
+        cloud_debug2.header.frame_id = "map";
+        pc2.publish(cloud_debug2);
+
 
         // exit callback if no obstacles
         if (cloud_filtered->empty())
@@ -281,7 +304,15 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
-    map_copy = map_msg;
+    if (map==false) 
+    {
+        map_copy = map_msg;
+        map=true;
+    }
+    else 
+    {
+        ;
+    }    
 }
 
 void ObstacleTrack::publishObstacles(pcl::PointXYZI position, pcl::PointXYZI velocity, const sensor_msgs::PointCloud2ConstPtr& input)
@@ -349,7 +380,7 @@ void ObstacleTrack::publishMarkers(pcl::PointXYZI predicted_centroid)
         m.header.frame_id="/map";
         m.type=visualization_msgs::Marker::CYLINDER;
         m.action=visualization_msgs::Marker::ADD;
-        m.scale.x=0.45;         m.scale.y=0.45;         m.scale.z=0.05;
+        m.scale.x=2*obstacle_radius;         m.scale.y=2*obstacle_radius;         m.scale.z=0.05;
         
         m.color.r=0.75;
         m.color.g=0.0;
@@ -392,6 +423,11 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     std::vector<float> y_max; // higher boundary y of occupied grid
     int count_occupied = 0; // number of occupied
     float clearance = resolution * 0.5; // clearance of occupied grid for pointcloud pose error
+
+    // if(real_world==true)
+    // {
+    //     clearance = resolution * 1.0;
+    // }
 
     // get coordinate range of occupied cell from map msg 
     for (int i=0; i<map_copy.data.size(); i++) 
@@ -531,7 +567,11 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
 
             // set radius for publishObstacles
             Vector3d V_centroid(centroid.x, centroid.y, centroid.z);
-            obstacle_radius = euc_dist(V_centroid, Pi);
+            obstacle_radius = euc_dist(V_centroid, Pj);
+            if (obstacle_radius > 0.5) // obstacle radius constraint
+            {
+                obstacle_radius = 0.49;
+            }
             
             /*
             float alpha;

@@ -95,6 +95,10 @@ public:
     ros::Subscriber input_sub; // input Pointclouds 
     ros::Subscriber map_sub; // Occupied grid map
 
+    ros::Publisher pc1;
+    ros::Publisher pc2;
+    ros::Publisher pc3;
+
     
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
@@ -141,6 +145,7 @@ public:
     float VoxelLeafSize_;
     bool firstFrame = true;
     bool t_init = false;
+    bool map = false;
     double time_init;
 
     //tf msgs

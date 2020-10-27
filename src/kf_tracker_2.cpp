@@ -224,7 +224,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // publish pointcloud for debuging 
         sensor_msgs::PointCloud2 cloud_debug;
         pcl::toROSMsg(cloud_1, cloud_debug);
-        cloud_debug.header.frame_id = "map";
+        cloud_debug.header.frame_id = "velodyne";
         pc1.publish(cloud_debug);
 
         // Remove static obstacles from occupied grid map msg
@@ -236,7 +236,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // publish pointcloud for debuging 
         sensor_msgs::PointCloud2 cloud_debug2;
         pcl::toROSMsg(cloud_3, cloud_debug2);
-        cloud_debug2.header.frame_id = "map";
+        cloud_debug2.header.frame_id = "velodyne";
         pc2.publish(cloud_debug2);
 
 
@@ -422,18 +422,13 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     std::vector<float> y_min; // lower boundary y of occupied grid
     std::vector<float> y_max; // higher boundary y of occupied grid
     int count_occupied = 0; // number of occupied
-    float clearance = resolution * 0.5; // clearance of occupied grid for pointcloud pose error
-
-    // if(real_world==true)
-    // {
-    //     clearance = resolution * 1.0;
-    // }
+    float clearance = resolution * 1.0; // clearance of occupied grid for pointcloud pose error
 
     // get coordinate range of occupied cell from map msg 
     for (int i=0; i<map_copy.data.size(); i++) 
     {
         int cell = map_copy.data[i]; 
-        if (cell > 60) // all cell with occupancy larger than 60.0
+        if (cell > 50) // all cell with occupancy larger than 50.0
         { 
             x_min.push_back((i%width_i)*resolution + pos_x - clearance);
             x_max.push_back((i%width_i)*resolution  + pos_x + resolution + clearance);

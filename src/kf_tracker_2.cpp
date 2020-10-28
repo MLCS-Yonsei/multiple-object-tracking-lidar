@@ -428,7 +428,7 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     for (int i=0; i<map_copy.data.size(); i++) 
     {
         int cell = map_copy.data[i]; 
-        if (cell > 50) // all cell with occupancy larger than 50.0
+        if (cell > 50 || cell == -1) // all cell with occupancy larger than 50.0
         { 
             x_min.push_back((i%width_i)*resolution + pos_x - clearance);
             x_max.push_back((i%width_i)*resolution  + pos_x + resolution + clearance);

@@ -1,5 +1,8 @@
 #include "kf_tracker_2/kf_tracker_2.h"
 
+//TODO: 
+// 1) PCL Clustering memorized last step
+// 2) multi obstacle ID
 
 ObstacleTrack::ObstacleTrack()
 {
@@ -27,6 +30,7 @@ bool ObstacleTrack::initialize()
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 1); // rviz visualization
 
+        // pointcloud publisher for debugging
         pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",1);
         pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",1);
         pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",1);
@@ -50,7 +54,7 @@ void ObstacleTrack::updateParam()
 {
     nh_.param<int>("/kf_tracker_2/obstacle_num", obstacle_num_, 1); // # of maximum observable obstacle 
     nh_.param<float>("/kf_tracker_2/cluster_tolerance", ClusterTolerance_, 0.15); // pcl extraction tolerance
-    nh_.param<int>("/kf_tracker_2/min_cluster_size", MinClusterSize_, 10);
+    nh_.param<int>("/kf_tracker_2/min_cluster_size", MinClusterSize_, 5);
     nh_.param<int>("/kf_tracker_2/max_cluster_size", MaxClusterSize_, 200);
     nh_.param<float>("/kf_tracker_2/voxel_leaf_size", VoxelLeafSize_, 0.05); // default is same with map resolution
 
@@ -69,11 +73,6 @@ void ObstacleTrack::updateParam()
 
     nh_.param<int>("/kf_tracker_2/data_length", data_length, 10);
     nh_.param<bool>("/kf_tracker_2/param_fix", param_fix, true);
-}
-
-void ObstacleTrack::spinNode()
-{
-  ros::spin();
 }
 
 void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
@@ -207,7 +206,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         pcl::PointCloud<pcl::PointXYZ> cloud_0;
         for (const auto& point: input_cloud)
         {
-            if(point.z > 0.0)
+            if(point.z > 0.15) // ignore pointcloud under z < 0.15m
             {
                 cloud_0.push_back(point);
                 cloud_0.back().z = 0;
@@ -224,7 +223,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // publish pointcloud for debuging 
         sensor_msgs::PointCloud2 cloud_debug;
         pcl::toROSMsg(cloud_1, cloud_debug);
-        cloud_debug.header.frame_id = "velodyne";
+        cloud_debug.header.frame_id = "map";
         pc1.publish(cloud_debug);
 
         // Remove static obstacles from occupied grid map msg
@@ -236,7 +235,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // publish pointcloud for debuging 
         sensor_msgs::PointCloud2 cloud_debug2;
         pcl::toROSMsg(cloud_3, cloud_debug2);
-        cloud_debug2.header.frame_id = "velodyne";
+        cloud_debug2.header.frame_id = "map";
         pc2.publish(cloud_debug2);
 
 
@@ -394,17 +393,6 @@ void ObstacleTrack::publishMarkers(pcl::PointXYZI predicted_centroid)
         obstacleMarkers.markers.push_back(m);
     }
     marker_pub.publish(obstacleMarkers);
-}
-
-void ObstacleTrack::publishObjID()
-{
-    std_msgs::Int32MultiArray obj_id;
-    obj_id.data.reserve(obstacle_num_);
-    for(auto it=objID.begin(); it!=objID.end(); it++) 
-    {
-        obj_id.data.push_back(*it);
-    }
-    objID_pub.publish(obj_id);
 }
 
 pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::PointXYZ> input_cloud, pcl::PointCloud<pcl::PointXYZ> cloud_pre_process)

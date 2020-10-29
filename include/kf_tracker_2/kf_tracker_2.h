@@ -89,16 +89,14 @@ public:
     void updateParam();
 
     ros::Publisher obstacle_pub; // obstacle pos&vel
-    ros::Publisher debug_pub;  // msg for debugging
-    ros::Publisher objID_pub; // objID (
-    ros::Publisher marker_pub; // obstacle pose visualization (KF)
-    ros::Subscriber input_sub; // input Pointclouds 
-    ros::Subscriber map_sub; // Occupied grid map
+    ros::Publisher marker_pub; // obstacle pose visualization 
 
     ros::Publisher pc1;
     ros::Publisher pc2;
     ros::Publisher pc3;
 
+    ros::Subscriber map_sub; // Occupied grid map
+    ros::Subscriber input_sub; // input Pointclouds
     
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;

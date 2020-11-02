@@ -288,12 +288,14 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         }
         //else if(param_fix == false) { predicted_centroid = IHGP_nonfixed(centroids); }
 
-        // e_1 = clock(); 
-        // cout<<(centroids[data_length-1].intensity-time_init)<<"," \
-        //     <<centroids[data_length-1].x<<","<<centroids[data_length-1].y<<"," \
-        //     <<predicted_centroid.x<<","<<predicted_centroid.y<<"," \
-        //     <<predicted_velocity.x<<","<<predicted_velocity.y<<"," \
-        //     <<((e_1-s_1)*(1e-3))<<endl;  
+        // obstacle velocity bounding
+        double obs_max_vx = 1.0; // (m/s)
+        double obs_max_vy = 1.0;
+        if (predicted_velocity.x > obs_max_vx) {predicted_velocity.x = obs_max_vx;}
+        else if (predicted_velocity.x < -obs_max_vx) {predicted_velocity.x = -obs_max_vx;}
+
+        if (predicted_velocity.y > obs_max_vy) {predicted_velocity.y = obs_max_vy;}
+        else if (predicted_velocity.y < -obs_max_vy) {predicted_velocity.y = -obs_max_vy;}
 
         // Publish state & rviz marker 
         publishObstacles(predicted_centroid, predicted_velocity, input);
@@ -551,9 +553,9 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             // set radius for publishObstacles
             Vector3d V_centroid(centroid.x, centroid.y, centroid.z);
             obstacle_radius = euc_dist(V_centroid, Pj);
-            if (obstacle_radius > 0.5) // obstacle radius constraint
+            if (obstacle_radius > 0.4) // obstacle radius constraint
             {
-                obstacle_radius = 0.49;
+                obstacle_radius = 0.39;
             }
             
             /*

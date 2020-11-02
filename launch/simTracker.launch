@@ -9,7 +9,7 @@
 
 
  <!-- Launch PCL obstacle tracker -->
-  <node pkg='kf_tracker_2' type='kf_tracker_2_node' name='kf_tracker_2'>
+  <node pkg='kf_tracker_2' type='kf_tracker_2_node' name='kf_tracker_2' output="screen">
     <param name='frequency' value='10.1'/>
 
     <param name='obstacle_num' value='1'/>

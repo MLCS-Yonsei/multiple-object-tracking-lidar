@@ -196,29 +196,46 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
  
     else
     { 
-        // s_1 = clock();
+        s_1 = clock();
         // Process the point cloud 
         // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
         pcl::PointCloud<pcl::PointXYZ> input_cloud;
         pcl::fromROSMsg (*input, input_cloud);
 
-        // filter pointcloud only z>0 and update to z==0
-        pcl::PointCloud<pcl::PointXYZ> cloud_0;
-        for (const auto& point: input_cloud)
-        {
-            if(point.z > 0.15) // ignore pointcloud under z < 0.15m
-            {
-                cloud_0.push_back(point);
-                cloud_0.back().z = 0;
-            }
-        }
+        cout<<input_cloud.size()<<endl;
 
         // Voxel Down sampling 
         pcl::VoxelGrid<pcl::PointXYZ> vg;
+        pcl::PointCloud<pcl::PointXYZ> cloud_0;
+        vg.setInputCloud (input_cloud.makeShared());
+        vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 1*VoxelLeafSize_); // Leaf size 0.1m
+        vg.filter (cloud_0);
+
+        cout<<cloud_0.size()<<endl;
+
+        // filter pointcloud only z>0 and update to z==0
+        pcl::PointCloud<pcl::PointXYZ> cloud_00;
+        for (const auto& point: cloud_0)
+        {
+            if(point.z > 0.1) // ignore pointcloud under z < 0.15m
+            {
+                cloud_00.push_back(point);
+                cloud_00.back().z = 0;
+            }
+        }
+
+        cout<<cloud_00.size()<<endl;
+
+        e_1 = clock();
+        cout<<"[1] "<<((e_1-s_1)*0.001)<<" ms"<<endl;
+
+        s_2= clock();
+        // Voxel Down sampling 
+        pcl::VoxelGrid<pcl::PointXYZ> vg2;
         pcl::PointCloud<pcl::PointXYZ> cloud_1;
-        vg.setInputCloud (cloud_0.makeShared());
-        vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
-        vg.filter (cloud_1);
+        vg2.setInputCloud (cloud_00.makeShared());
+        vg2.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
+        vg2.filter (cloud_1);
 
         // publish pointcloud for debuging 
         sensor_msgs::PointCloud2 cloud_debug;
@@ -226,11 +243,18 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         cloud_debug.header.frame_id = "map";
         pc1.publish(cloud_debug);
 
+        cout<<cloud_1.size()<<endl;
+        
+
         // Remove static obstacles from occupied grid map msg
         pcl::PointCloud<pcl::PointXYZ> cloud_3;
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
         cloud_3 = removeStatic(cloud_1, cloud_3);
         *cloud_filtered = cloud_3;
+
+        e_2 = clock();
+        cout<<"[2] "<<((e_2-s_2)*0.001)<<" ms"<<endl;
+        cout<<"------------"<<endl;
 
         // publish pointcloud for debuging 
         sensor_msgs::PointCloud2 cloud_debug2;
@@ -300,6 +324,8 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         // Publish state & rviz marker 
         publishObstacles(predicted_centroid, predicted_velocity, input);
         publishMarkers(predicted_centroid);
+
+        
     } 
 } 
 

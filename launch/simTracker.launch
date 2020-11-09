@@ -35,6 +35,7 @@
     <param name='param_fix' value='true'/>
 
     <remap from='input_pointcloud' to='/scan_matched_points2' />
+    <remap from='map' to='/move_base/local_costmap/costmap' />
   </node>
 
 </launch>

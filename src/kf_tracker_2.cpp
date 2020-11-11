@@ -26,18 +26,18 @@ bool ObstacleTrack::initialize()
         updateParam();
 
         // Create a ROS Publishers 
-        obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("move_base/TebLocalPlannerROS/obstacles",1); // the state of objects (pos and vel)
+        obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("move_base/TebLocalPlannerROS/obstacles", 10); // the state of objects (pos and vel)
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
-        marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 1); // rviz visualization
+        marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 10); // rviz visualization
 
         // pointcloud publisher for debugging
-        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",1);
-        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",1);
-        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",1);
+        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",10);
+        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",10);
+        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",10);
 
         // Initialize Subscriber for input Pointcloud2 
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
-        input_sub = nh_.subscribe("input_pointcloud", 10, &ObstacleTrack::cloudCallback, this);
+        input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
 
         time_init = ros::Time::now().toSec(); // for real world test
         
@@ -442,10 +442,10 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
         }
     }
 
-    float map_x_min = pos_x - width*resolution/2 + 3;
-    float map_x_max = pos_x + width*resolution/2 + 3;
-    float map_y_min = pos_y - height*resolution/2 + 3;
-    float map_y_max = pos_y + height*resolution/2 + 3;
+    float map_x_min = pos_x - (width/2-2)*resolution + 3;
+    float map_x_max = pos_x + (width/2-2)*resolution + 3;
+    float map_y_min = pos_y - (height/2-2)*resolution + 3;
+    float map_y_max = pos_y + (height/2-2)*resolution + 3;
     
     // select pointclouds not above occupied cell(static cell)
     for (const auto& point: input_cloud.points)
@@ -578,9 +578,9 @@ pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster
             // set radius for publishObstacles
             Vector3d V_centroid(centroid.x, centroid.y, centroid.z);
             obstacle_radius = euc_dist(V_centroid, Pj);
-            if (obstacle_radius > 0.4) // obstacle radius constraint
+            if (obstacle_radius > 0.3) // obstacle radius constraint
             {
-                obstacle_radius = 0.39;
+                obstacle_radius = 0.29;
             }
             
             /*

@@ -98,6 +98,10 @@ public:
     ros::Subscriber map_sub; // Occupied grid map
     ros::Subscriber input_sub; // input Pointclouds
     
+    /////////////////////////////////////////////////
+    ros::Subscriber pointnet_sub;
+    pcl::PointXYZI pointnet_centroid;
+    
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
     clock_t e_1, e_2, e_3, e_4, e_5, e_6, e_7;
@@ -165,9 +169,16 @@ private:
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
 
+////////////////////////////////////////////////////////////////////////////
+    void pointnetCallback(const std_msgs::Float32MultiArray& array);
+
     void publishObstacles(pcl::PointXYZI predicted_centroid, \
         pcl::PointXYZI predicted_velocity,\
         const sensor_msgs::PointCloud2ConstPtr& input);
+
+    /////////////////////////////////
+    void publishObstacles_2(pcl::PointXYZI predicted_centroid, \
+        pcl::PointXYZI predicted_velocity);
 
     void publishMarkers(pcl::PointXYZI predicted_centroid);
 

@@ -30,15 +30,9 @@ bool ObstacleTrack::initialize()
         // objID_pub = nh_.advertise<std_msgs::Int32MultiArray>("obj_id", 1); // the objID of objects
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 10); // rviz visualization
 
-        // pointcloud publisher for debugging
-        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",10);
-        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",10);
-        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",10);
-
-        // Initialize Subscriber for input Pointcloud2 
-        map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
-        //input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
+        // Initialize Subscriber
         pointnet_sub = nh_.subscribe("/predicted_centroid", 1, &ObstacleTrack::pointnetCallback, this);
+
         time_init = ros::Time::now().toSec(); // for real world test
         ROS_INFO_STREAM("ObstacleTrack Initialized");
         return true;
@@ -74,263 +68,9 @@ void ObstacleTrack::updateParam()
     nh_.param<bool>("/kf_tracker_2/param_fix", param_fix, true);
 }
 
-void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
-{
-    // If this is the first frame, initialize kalman filters for the clustered objects
-    if (firstFrame)
-    {   
-        if (input->header.stamp.toSec() < 1.0e9)
-        {
-            time_init = 0;
-        }
-        if (input->header.stamp.toSec() - time_init < 0 && t_init==false)
-        {
-            time_init = input->header.stamp.toSec();
-            t_init = true;
-        }
-        
-        // Process the point cloud 
-        // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
-        pcl::PointCloud<pcl::PointXYZ> input_cloud;
-        pcl::fromROSMsg (*input, input_cloud);
-
-        // filter pointcloud only z>0 and update to z=0
-        pcl::PointCloud<pcl::PointXYZ> cloud_0;
-        for (const auto& point: input_cloud)
-        {
-            if(point.z > 0.0)
-            {
-                cloud_0.push_back(point);
-                cloud_0.back().z = 0;
-            }
-        }
-
-        // Voxel Down sampling 
-        pcl::VoxelGrid<pcl::PointXYZ> vg;
-        pcl::PointCloud<pcl::PointXYZ> cloud_1;
-        vg.setInputCloud (cloud_0.makeShared());
-        vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
-        vg.filter (cloud_1);
-
-        // Remove static obstacles from occupied grid map msg
-        pcl::PointCloud<pcl::PointXYZ> cloud_3;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-        cloud_3 = removeStatic(cloud_1, cloud_3);
-        *cloud_filtered = cloud_3;
-
-        // exit callback if no obstacles
-        if (cloud_filtered->empty())
-        {
-            ROS_INFO("No obstacles around");
-            return;
-        }
-
-        // Creating the KdTree from voxel point cloud 
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-        tree->setInputCloud (cloud_filtered);
-
-        // Here we are creating a vector of PointIndices, which contains the actual index
-        // information in a vector<int>. The indices of each detected cluster are saved here.
-        // Cluster_indices is a vector containing one instance of PointIndices for each detected 
-        // cluster. Cluster_indices[0] contain all indices of the first cluster in input point cloud.
-        std::vector<pcl::PointIndices> cluster_indices;
-        pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-        ec.setClusterTolerance (ClusterTolerance_);
-        ec.setMinClusterSize (MinClusterSize_);
-        ec.setMaxClusterSize (MaxClusterSize_);
-        ec.setSearchMethod (tree);
-        ec.setInputCloud (cloud_filtered);
-
-        // Extract the clusters out of pc and save indices in cluster_indices.
-        ec.extract (cluster_indices); // most of Runtime are used from this step.
-
-        if (cluster_indices.empty())
-            return;
-
-        // Predict obstacle center with circumcenter method
-        pcl::PointXYZI centroid;
-        centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
-
-        if (centroids.size() >= data_length) // centroids array update
-        {
-            firstFrame = false;
-            centroids.erase(centroids.begin());
-
-            float dt_sum;
-            for(int i=0; i!=centroids.size(); i++)
-            {
-                dt_sum += centroids[i+1].intensity - centroids[i].intensity;
-            }
-            dt_gp = dt_sum/(centroids.size());
-
-            if (param_fix == true) 
-            {
-                // Set hyperparameters
-                model_x.setSigma2(exp(logSigma2_x_));
-                model_x.setMagnSigma2(exp(logMagnSigma2_x_)); 
-                model_x.setLengthScale(exp(logLengthScale_x_));
-
-                model_y.setSigma2(exp(logSigma2_y_));
-                model_y.setMagnSigma2(exp(logMagnSigma2_y_)); 
-                model_y.setLengthScale(exp(logLengthScale_y_)); 
-
-                gp_x.init_InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
-                gp_y.init_InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
-            }
-
-            if (param_fix == false)
-            {
-                // Set hyperparameters
-                model_x.setSigma2(0.1);
-                model_x.setMagnSigma2(0.1); 
-                model_x.setLengthScale(0.1);
-
-                model_y.setSigma2(0.1);
-                model_y.setMagnSigma2(0.1); 
-                model_y.setLengthScale(0.1); 
-            }
-        }
-        centroids.push_back(centroid);
-    }
- 
-    else
-    { 
-        // Process the point cloud 
-        // change PointCloud data type (ros sensor_msgs to pcl_Pointcloud)
-        pcl::PointCloud<pcl::PointXYZ> input_cloud;
-        pcl::fromROSMsg (*input, input_cloud);
-
-        // // Voxel Down sampling 
-        // pcl::VoxelGrid<pcl::PointXYZ> vg;
-        // pcl::PointCloud<pcl::PointXYZ> cloud_0;
-        // vg.setInputCloud (input_cloud.makeShared());
-        // vg.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 1*VoxelLeafSize_); // Leaf size 0.1m
-        // vg.filter (cloud_0);
-
-        // filter pointcloud only z>0 and update to z==0
-        // pcl::PointCloud<pcl::PointXYZ> cloud_00;
-        // for (const auto& point: input_cloud)
-        // {
-        //     if(point.z > 0.1)  // ignore pointcloud under z < 0.15m
-        //     {
-        //         cloud_00.push_back(point);
-        //         cloud_00.back().z = 0;
-        //     }
-        // }
-
-        // Voxel Down sampling 
-        pcl::VoxelGrid<pcl::PointXYZ> vg2;
-        pcl::PointCloud<pcl::PointXYZ> cloud_1;
-        // vg2.setInputCloud (cloud_00.makeShared());
-        vg2.setInputCloud (input_cloud.makeShared());
-        vg2.setLeafSize (1*VoxelLeafSize_, 1*VoxelLeafSize_, 20*VoxelLeafSize_); // Leaf size 0.1m
-        vg2.filter (cloud_1);
-
-        // publish pointcloud for debuging 
-        sensor_msgs::PointCloud2 cloud_debug;
-        pcl::toROSMsg(cloud_1, cloud_debug);
-        cloud_debug.header.frame_id = "map";
-        pc1.publish(cloud_debug);
-        
-
-        // Remove static obstacles from occupied grid map msg
-        pcl::PointCloud<pcl::PointXYZ> cloud_3;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-        cloud_3 = removeStatic(cloud_1, cloud_3);
-        *cloud_filtered = cloud_3;
-
-
-        // publish pointcloud for debuging 
-        sensor_msgs::PointCloud2 cloud_debug2;
-        pcl::toROSMsg(cloud_3, cloud_debug2);
-        cloud_debug2.header.frame_id = "map";
-        pc2.publish(cloud_debug2);
-
-
-        // exit callback if no obstacles
-        if (cloud_filtered->empty())
-        {
-            ROS_INFO("No obstacles around");
-            return;
-        }
-
-        // Creating the KdTree from voxel point cloud 
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-        tree->setInputCloud (cloud_filtered);
-
-        // Here we are creating a vector of PointIndices, which contains the actual index
-        // information in a vector<int>. The indices of each detected cluster are saved here.
-        // Cluster_indices is a vector containing one instance of PointIndices for each detected 
-        // cluster. Cluster_indices[0] contain all indices of the first cluster in input point cloud.
-        std::vector<pcl::PointIndices> cluster_indices;
-        pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-        ec.setClusterTolerance (ClusterTolerance_);
-        ec.setMinClusterSize (MinClusterSize_);
-        ec.setMaxClusterSize (MaxClusterSize_);
-        ec.setSearchMethod (tree);
-        ec.setInputCloud (cloud_filtered);
-
-        // Extract the clusters out of pc and save indices in cluster_indices.
-        ec.extract (cluster_indices); // most of Runtime are used from this step.
-
-        // Predict obstacle center with circumcenter method
-        if (cluster_indices.empty())
-            return;
-        pcl::PointXYZI centroid;
-        centroid = getCentroid(cluster_indices, *cloud_filtered, *input);     
-
-        // Change map coordinate centroid to base_link coordinate centroid 
-        // centroid = getRelativeCentroid(centroid);
-        
-        // centroids array update
-        centroids.erase(centroids.begin());
-        centroids.push_back(centroid);
-
-        // Predict with GP 
-        pcl::PointXYZI predicted_centroid;
-        pcl::PointXYZI predicted_velocity;
-        if (param_fix == true) 
-        { 
-            predicted_centroid = IHGP_fixed(centroids, "pos"); 
-            predicted_velocity = IHGP_fixed(centroids, "vel");
-        }
-        //else if(param_fix == false) { predicted_centroid = IHGP_nonfixed(centroids); }
-
-        // obstacle velocity bounding
-        double obs_max_vx = 1.0; // (m/s)
-        double obs_max_vy = 1.0;
-        if (predicted_velocity.x > obs_max_vx) {predicted_velocity.x = obs_max_vx;}
-        else if (predicted_velocity.x < -obs_max_vx) {predicted_velocity.x = -obs_max_vx;}
-
-        if (predicted_velocity.y > obs_max_vy) {predicted_velocity.y = obs_max_vy;}
-        else if (predicted_velocity.y < -obs_max_vy) {predicted_velocity.y = -obs_max_vy;}
-
-        // Publish state & rviz marker 
-        publishObstacles(predicted_centroid, predicted_velocity, input);
-        publishMarkers(predicted_centroid);
-
-        
-    } 
-} 
-
-void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
-{
-    map_copy = map_msg;
-
-    // if (map==false) 
-    // {
-    //     map_copy = map_msg;
-    //     map=true;
-    // }
-    // else 
-    // {
-    //     ;
-    // }    
-}
-
 // subscribe callback func when use pointnet for detecting object's centroid 
 // subscribe pointnet x,y -> change to map tf -> ihgp
-void ObstacleTrack::pointnetCallback(const std_msgs::Float32MultiArray& array)
+void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input_msg)
 {   
     // TODO:
     // [] fix pointnet's output data to array
@@ -410,30 +150,32 @@ void ObstacleTrack::pointnetCallback(const std_msgs::Float32MultiArray& array)
 
     else
     {
-        transform.setOrigin( tf::Vector3(array.data[0], array.data[1], 0.0) );
-        transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
-        tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/base_link", "/object"));
+        // transform.setOrigin( tf::Vector3(array.data[0], array.data[1], 0.0) );
+        // transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
+        // tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/base_link", "/object"));
 
-        try
-        {
-            tf_listener.waitForTransform("/map", "/object", ros::Time(0), ros::Duration(3.0));
-            tf_listener.lookupTransform("/map", "/object", ros::Time(0), stamped_transform);
-        }
-        catch (tf::TransformException &ex) {
-            ROS_ERROR("%s",ex.what());
-            ros::Duration(1.0).sleep();
-        }
+        // try
+        // {
+        //     tf_listener.waitForTransform("/map", "/object", ros::Time(0), ros::Duration(3.0));
+        //     tf_listener.lookupTransform("/map", "/object", ros::Time(0), stamped_transform);
+        // }
+        // catch (tf::TransformException &ex) {
+        //     ROS_ERROR("%s",ex.what());
+        //     ros::Duration(1.0).sleep();
+        // }
 
-        // get relative_centroid using transform    
-        pointnet_centroid.x = stamped_transform.getOrigin().x();
-        pointnet_centroid.y = stamped_transform.getOrigin().y();
-        pointnet_centroid.z = 0.0;
-        pointnet_centroid.intensity = ros::Time::now().toSec();
+        // // get relative_centroid using transform    
+        // pointnet_centroid.x = stamped_transform.getOrigin().x();
+        // pointnet_centroid.y = stamped_transform.getOrigin().y();
+        // pointnet_centroid.z = 0.0;
+        // pointnet_centroid.intensity = ros::Time::now().toSec();
 
+        
+        std::vector<pcl::PointXYZI> centroids; // t centroids
 
         // centroids array update
-        centroids.erase(centroids.begin());
-        centroids.push_back(pointnet_centroid);
+        pointnet_centroids.erase(pointnet_centroids.begin());
+        pointnet_centroids.push_back(centroids);
 
         // Predict with GP 
         pcl::PointXYZI predicted_centroid;
@@ -460,7 +202,7 @@ void ObstacleTrack::pointnetCallback(const std_msgs::Float32MultiArray& array)
     }
 }
 
-void ObstacleTrack::publishObstacles_2(pcl::PointXYZI position, pcl::PointXYZI velocity)
+void ObstacleTrack::publishObstacles(pcl::PointXYZI position, pcl::PointXYZI velocity)
 {
     costmap_converter::ObstacleArrayMsg obstacle_array;
     costmap_converter::ObstacleMsg obstacle;
@@ -473,59 +215,6 @@ void ObstacleTrack::publishObstacles_2(pcl::PointXYZI position, pcl::PointXYZI v
     obstacle_array.obstacles[0].id = 99;
     obstacle_array.obstacles[0].radius = 0.1; //obstacle_radius
     obstacle_array.obstacles[0].header.stamp = ros::Time::now();
-    obstacle_array.obstacles[0].header.frame_id = "map";
-
-    // velocity
-    obstacle_array.obstacles[0].velocities.twist.linear.x = velocity.x;
-    obstacle_array.obstacles[0].velocities.twist.linear.y = velocity.y;
-    obstacle_array.obstacles[0].velocities.twist.linear.z = 0;
-    obstacle_array.obstacles[0].velocities.twist.angular.x = 0;
-    obstacle_array.obstacles[0].velocities.twist.angular.y = 0;
-    obstacle_array.obstacles[0].velocities.twist.angular.z = 0;
-
-    obstacle_array.obstacles[0].velocities.covariance[0] = .1;
-    obstacle_array.obstacles[0].velocities.covariance[7] = .1;
-    obstacle_array.obstacles[0].velocities.covariance[14] = 1e9;
-    obstacle_array.obstacles[0].velocities.covariance[21] = 1e9;
-    obstacle_array.obstacles[0].velocities.covariance[28] = 1e9;
-    obstacle_array.obstacles[0].velocities.covariance[35] = .1;
-
-    // orientation
-    float yaw;
-    yaw = atan2(velocity.y, velocity.x);
-    tf2::Quaternion Quaternion;
-    Quaternion.setRPY(0,0,yaw);
-    geometry_msgs::Quaternion quat_msg;
-    quat_msg = tf2::toMsg(Quaternion);
-    obstacle_array.obstacles[0].orientation = quat_msg;
-
-    // Polygon of obstacle
-    std::vector<geometry_msgs::Point32> _points(1);
-    obstacle_array.obstacles[0].polygon.points = _points;
-    obstacle_array.obstacles[0].polygon.points[0].x = position.x;
-    obstacle_array.obstacles[0].polygon.points[0].y = position.y;
-    obstacle_array.obstacles[0].polygon.points[0].z = 0;
-
-
-    obstacle_pub.publish(obstacle_array);
-
-    //Completed: move_base의 teb planner에게 obstacle 전달
-    //TODO: navigation 돌리면서 local costmap과 path 확인해보기
-}
-
-void ObstacleTrack::publishObstacles(pcl::PointXYZI position, pcl::PointXYZI velocity, const sensor_msgs::PointCloud2ConstPtr& input)
-{
-    costmap_converter::ObstacleArrayMsg obstacle_array;
-    costmap_converter::ObstacleMsg obstacle;
-
-    // ObstacleArray header
-    obstacle_array.header.stamp = input->header.stamp;
-    obstacle_array.header.frame_id = "map";
-    
-    obstacle_array.obstacles.push_back(costmap_converter::ObstacleMsg());
-    obstacle_array.obstacles[0].id = 99;
-    obstacle_array.obstacles[0].radius = obstacle_radius; //pointcloud range
-    obstacle_array.obstacles[0].header.stamp = input->header.stamp;
     obstacle_array.obstacles[0].header.frame_id = "map";
 
     // velocity
@@ -594,213 +283,6 @@ void ObstacleTrack::publishMarkers(pcl::PointXYZI predicted_centroid)
     }
     marker_pub.publish(obstacleMarkers);
 }
-
-pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::PointXYZ> input_cloud, pcl::PointCloud<pcl::PointXYZ> cloud_pre_process)
-{
-    int width_i = map_copy.info.width; // width (integer) for grid calculation
-    float width = map_copy.info.width; // width (float) for division calculation
-    float height = map_copy.info.height;
-    float resolution = map_copy.info.resolution;
-    float pos_x = map_copy.info.origin.position.x; // origin of map
-    float pos_y = map_copy.info.origin.position.y;
-
-    /* Make lists of occupied grids coordinate */
-    std::vector<float> x_min; // lower boundary x of occupied grid
-    std::vector<float> x_max; // higher boundary x of occupied grid
-    std::vector<float> y_min; // lower boundary y of occupied grid
-    std::vector<float> y_max; // higher boundary y of occupied grid
-    int count_occupied = 0; // number of occupied
-    float clearance = resolution * 1.0; // clearance of occupied grid for pointcloud pose error
-
-    // get coordinate range of occupied cell from map msg 
-    for (int i=0; i<map_copy.data.size(); i++) 
-    {
-        int cell = map_copy.data[i]; 
-        // if (cell > 50 || cell == -1) // all cell with occupancy larger than 50.0
-        if( cell != 0)
-        { 
-            x_min.push_back((i%width_i)*resolution + pos_x - clearance);
-            x_max.push_back((i%width_i)*resolution  + pos_x + resolution + clearance);
-            y_min.push_back((i/width_i)*resolution + pos_y - clearance);
-            y_max.push_back((i/width_i)*resolution  + pos_y + resolution + clearance);
-            count_occupied++;
-        }
-    }
-
-    float map_x_min = pos_x - (width/2-2)*resolution + 3;
-    float map_x_max = pos_x + (width/2-2)*resolution + 3;
-    float map_y_min = pos_y - (height/2-2)*resolution + 3;
-    float map_y_max = pos_y + (height/2-2)*resolution + 3;
-    
-    // select pointclouds not above occupied cell(static cell)
-    for (const auto& point: input_cloud.points)
-    {
-        if (map_x_min > point.x || point.x > map_x_max || \
-        map_y_min > point.y || point.y > map_y_max)
-        {
-            continue;
-        }
-
-        for (int k=0; k<count_occupied; k++) 
-        {
-            if (x_min[k] < point.x && point.x < x_max[k] && \
-            y_min[k] < point.y && point.y < y_max[k])
-            {
-                break;
-            }
-            else 
-            {
-                if (k==count_occupied-1) // leave only points that are not in the occupied range
-                {
-                    cloud_pre_process.push_back(point);   
-                }
-            }
-        }
-    }   
-
-    return cloud_pre_process;
-}
-
-pcl::PointXYZI ObstacleTrack::getCentroid(std::vector<pcl::PointIndices> cluster_indices, const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, const sensor_msgs::PointCloud2 input)
-{
-        // To separate each cluster out of the vector<PointIndices> we have to 
-        // iterate through cluster_indices, create a new PointCloud for each 
-        // entry and write all points of the current cluster in the PointCloud. 
-        std::vector<pcl::PointIndices>::const_iterator it;
-        std::vector<int>::const_iterator pit;
-
-        pcl::PointXYZI centroid; // (t) timestep cluster centroid (얘도 원래 vector나 스마트포인터로 해야함)
-        it = cluster_indices.begin(); // 원래 object가 여러개 잡혀서 iterator로 돌려야하나, 현재는 하나만 찾도록 해둠. 원래 for문이 들어갈 자리라 중괄호 남겨둠
-        {
-            Vector3d Pi; 
-            Vector3d Pj; 
-            Vector3d Pk; 
-
-            Vector3d Vij; // vector between Pi, Pj
-            Vector3d Po(0,0,0); // origin vector
-
-            // 1. get Pi, Pj (First, Second Point)
-            // get Vij norm and select vector that maximizes norm
-            float dist_max=-1;
-            for(int i=0; i!=it->indices.size(); i++)
-            {
-                for(int j=i+1; j!=it->indices.size(); j++)
-                {
-                    float dist;     
-
-                    Vector3d P1; 
-                    Vector3d P2;     
-                    pit = it->indices.begin()+i;              
-                    P1(0) = cloud_filtered.points[*pit].x;
-                    P1(1) = cloud_filtered.points[*pit].y;
-                    P1(2) = cloud_filtered.points[*pit].z;
-                    pit = it->indices.begin()+j;
-                    P2(0) = cloud_filtered.points[*pit].x;
-                    P2(1) = cloud_filtered.points[*pit].y;
-                    P2(2) = cloud_filtered.points[*pit].z;
-
-                    dist = euc_dist(P1, P2);
-                    if (dist > dist_max) 
-                    {
-                        Pi = P1; 
-                        Pj = P2;
-                        Vij(0) = (P2(1)-P1(1))/(P2(0)-P1(0));
-                        Vij(1) = -1;
-                        Vij(2) = Vij(0)*(-P1(0))+P1(1);
-                        dist_max = dist;
-                    }
-                }
-            }
-
-            // 2. get Pk (third Point)
-            dist_max = -1; // initialize dist_max 
-            for(int k=0; k!=it->indices.size(); k++)
-            {
-                float dist;
-
-                Vector3d P3;
-                pit = it->indices.begin()+k;
-                P3(0) = cloud_filtered.points[*pit].x;
-                P3(1) = cloud_filtered.points[*pit].y;
-                P3(2) = cloud_filtered.points[*pit].z;
-
-                // Euclidean distance between point and line
-                dist = std::abs(Vij(0)*P3(0) + Vij(1)*P3(1) + Vij(2))/std::sqrt(Vij(0)*Vij(0) + Vij(1)*Vij(1));
-                if (dist > dist_max)
-                {
-                    if(Pj==P3 || Pi==P3)
-                    {
-                        continue;
-                    }
-                    Pk = P3;
-                    dist_max = dist;
-                }
-            }
-            
-            // 3. circumcenter coordinates from cross and dot products
-            float A = Pj(0) - Pi(0);
-            float B = Pj(1) - Pi(1);
-            float C = Pk(0) - Pi(0);
-            float D = Pk(1) - Pi(1);
-            float E = A * (Pi(0) + Pj(0)) + B * (Pi(1) + Pj(1));
-            float F = C * (Pi(0) + Pk(0)) + D * (Pi(1) + Pk(1));
-            float G = 2.0 * (A * (Pk(1) - Pj(1)) - B * (Pk(0) - Pj(0)));
-            if(G==0)
-            {
-                centroid.x = Pi(0);
-                centroid.y = Pi(1);
-                centroid.z = 0.0;
-                centroid.intensity=input.header.stamp.toSec() - time_init; // used intensity slot(float) for time with GP
-            }
-            else
-            {
-                centroid.x = (D * E - B * F) / G;
-                centroid.y = (A * F - C * E) / G;
-                centroid.z = 0.0;
-                centroid.intensity=input.header.stamp.toSec() - time_init; // used intensity slot(float) for time with GP
-            }
-
-            // set radius for publishObstacles
-            Vector3d V_centroid(centroid.x, centroid.y, centroid.z);
-            obstacle_radius = euc_dist(V_centroid, Pj);
-            if (obstacle_radius > 0.3) // obstacle radius constraint
-            {
-                obstacle_radius = 0.29;
-            }
-            
-            /*
-            float alpha;
-            float beta;
-            float gamma;
-
-            Vector3d Pi_j = Pi - Pj;
-            Vector3d Pj_k = Pj - Pk;
-            Vector3d Pk_i = Pk - Pi;
-
-            float radius;
-            radius = 0.5*(euc_dist(Po, Pi_j)*euc_dist(Po, Pj_k)*euc_dist(Po, Pk_i)) \
-                    /euc_dist(Po, Pi_j.cross(Pj_k));
-
-            alpha = 0.5 * std::pow(euc_dist(Po, Pj_k), 2.0) * Pi_j.dot(-Pk_i) \
-                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0);
-            beta = 0.5 * std::pow(euc_dist(Po, -Pk_i), 2.0) * -Pi_j.dot(Pj_k) \
-                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0); 
-            gamma = 0.5 * std::pow(euc_dist(Po, Pi_j), 2.0) * Pk_i.dot(-Pj_k) \
-                    /std::pow(euc_dist(Po, Pi_j.cross(Pj_k)), 2.0); 
-
-            Vector3d Pcentroid;
-            Pcentroid = alpha*Pi + beta*Pj + gamma*Pk;
-            centroid.x = Pcentroid(0);
-            centroid.y = Pcentroid(1);
-            centroid.z = 0.0;           
-            centroid.intensity=input.header.stamp.toSec(); // used intensity slot(float) for time with GP
-            */
-        } 
-
-
-
-        return centroid;
-} 
 
 pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable)
 {
@@ -960,38 +442,4 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
     
     // return predicted_centroid;
     ;
-}
-
-float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)
-{
-    return std::sqrt((P1(0)-P2(0))*(P1(0)-P2(0)) + (P1(1)-P2(1))*(P1(1)-P2(1)) + (P1(2)-P2(2))*(P1(2)-P2(2)));
-}
-
-pcl::PointXYZI ObstacleTrack::getRelativeCentroid(pcl::PointXYZI centroid)
-{
-    //set object's tf using map coordinate
-    transform.setOrigin( tf::Vector3(centroid.x, centroid.y, 0.0) );
-    transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
-    tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/map", "/object"));
-
-    //get transform between base_link and object
-    try
-    {
-        tf_listener.waitForTransform("/base_link", "/object", ros::Time(0), ros::Duration(3.0));
-        tf_listener.lookupTransform("/base_link", "/object", ros::Time(0), stamped_transform);
-    }
-    catch (tf::TransformException &ex) {
-        ROS_ERROR("%s",ex.what());
-        ros::Duration(1.0).sleep();
-    }
-
-    // get relative_centroid using transform
-    pcl::PointXYZI relative_centroid;
-    
-    relative_centroid.x = stamped_transform.getOrigin().x();
-    relative_centroid.y = stamped_transform.getOrigin().y();
-    relative_centroid.z = 0.0;
-    relative_centroid.intensity = centroid.intensity;
-
-    return relative_centroid;
 }

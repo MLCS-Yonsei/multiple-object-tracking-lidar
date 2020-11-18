@@ -31,6 +31,7 @@
 #include <std_msgs/Float32.h>
 #include <std_msgs/Int64.h>
 #include <geometry_msgs/Pose.h>
+#include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/TwistWithCovariance.h>
@@ -91,25 +92,18 @@ public:
     ros::Publisher obstacle_pub; // obstacle pos&vel
     ros::Publisher marker_pub; // obstacle pose visualization 
 
-    ros::Publisher pc1;
-    ros::Publisher pc2;
-    ros::Publisher pc3;
-
-    ros::Subscriber map_sub; // Occupied grid map
-    ros::Subscriber input_sub; // input Pointclouds
-    
-    /////////////////////////////////////////////////
     ros::Subscriber pointnet_sub;
-    pcl::PointXYZI pointnet_centroid;
+    // pcl::PointXYZI pointnet_centroid;
     
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
     clock_t e_1, e_2, e_3, e_4, e_5, e_6, e_7;
     
     int data_length=10;
-    std::vector<pcl::PointXYZI> centroids; // t~(t-10) cluster Centers stack
+    std::vector<std::vector<pcl::PointXYZI>> pointnet_centroids; // t~(t-10) cluster Centers stack
     std::vector<int> objID;
-    nav_msgs::OccupancyGrid map_copy;
+
+    // nav_msgs::OccupancyGrid map_copy;
 
     // IHGP state space model
     Matern32model model_x;
@@ -165,39 +159,15 @@ private:
 
     void spinNode();
 
-    void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input);
-
-    void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
-
-////////////////////////////////////////////////////////////////////////////
-    void pointnetCallback(const std_msgs::Float32MultiArray& array);
+    void pointnetCallback(const geometry_msgs::PoseArray input_msg);
 
     void publishObstacles(pcl::PointXYZI predicted_centroid, \
-        pcl::PointXYZI predicted_velocity,\
-        const sensor_msgs::PointCloud2ConstPtr& input);
-
-    /////////////////////////////////
-    void publishObstacles_2(pcl::PointXYZI predicted_centroid, \
         pcl::PointXYZI predicted_velocity);
 
     void publishMarkers(pcl::PointXYZI predicted_centroid);
 
     void publishObjID();
 
-    pcl::PointCloud<pcl::PointXYZ> removeStatic( \
-        pcl::PointCloud<pcl::PointXYZ> input_cloud, \
-        pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
-
-    pcl::PointXYZI getCentroid( \
-        std::vector<pcl::PointIndices> cluster_indices, \
-        const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
-        const sensor_msgs::PointCloud2 input);
-
     pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable);
 
     pcl::PointXYZI IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids);
-
-    float euc_dist(Vector3d P1, Vector3d P2);
-
-    pcl::PointXYZI getRelativeCentroid(pcl::PointXYZI centroid);
-};

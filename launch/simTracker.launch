@@ -31,7 +31,7 @@
     <param name='logMagnSigma2_y' value='-3.5'/> 
     <param name='logLengthScale_y' value='0.75'/> 
 
-    <param name='data_length' value='40'/>
+    <param name='data_length' value='10'/>
     <param name='param_fix' value='true'/>
 
   </node>

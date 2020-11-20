@@ -93,45 +93,19 @@ public:
     ros::Publisher marker_pub; // obstacle pose visualization 
 
     ros::Subscriber pointnet_sub;
-    // pcl::PointXYZI pointnet_centroid;
     
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
     clock_t e_1, e_2, e_3, e_4, e_5, e_6, e_7;
     
-    int data_length=10;
-    std::vector<std::vector<pcl::PointXYZI>> pointnet_centroids; // t~(t-10) cluster Centers stack
-    std::vector<int> objID;
-
-    // nav_msgs::OccupancyGrid map_copy;
-
-    // IHGP state space model
-    Matern32model model_x;
-    Matern32model model_y;
+    // Stack of objects position
+    std::vector<std::vector<pcl::PointXYZI>> objects_centroids; 
+    std::vector<int> objIDs = {}; // object ID
 
     // IHGP
-    InfiniteHorizonGP gp_x;
-    InfiniteHorizonGP gp_y;
-
-    bool param_fix;
-    float dt_gp;    
-    double logSigma2_x_;
-    double logMagnSigma2_x_;
-    double logLengthScale_x_;
-    double logSigma2_y_;
-    double logMagnSigma2_y_;
-    double logLengthScale_y_;
-
-    double vel_x=999;
-    double vel_y=999;
-    double mean_x=0;
-    double mean_y=0;
-    std::vector<double> Eft_x;
-    std::vector<double> Eft_y;
-    std::vector<double> logLengthScales_x;
-    std::vector<double> logLengthScales_y;
-    std::vector<double> logMagnSigma2s_x;
-    std::vector<double> logMagnSigma2s_y;
+    float dt_gp;  
+    std::vector<InfiniteHorizonGP*> GPs_x;
+    std::vector<InfiniteHorizonGP*> GPs_y;
     
     // configuration
     int obstacle_num_;
@@ -139,16 +113,28 @@ public:
     int MinClusterSize_; // default 10
     int MaxClusterSize_; // default 600
     float VoxelLeafSize_;
+
+    double logSigma2_x_;
+    double logMagnSigma2_x_;
+    double logLengthScale_x_;
+
+    double logSigma2_y_;
+    double logMagnSigma2_y_;
+    double logLengthScale_y_;
+
+    int data_length=10; // IHGP data length
+    bool param_fix;
+
+    // check
     bool firstFrame = true;
     bool t_init = false;
-    bool map = false;
-    double time_init;
+    double time_init; // inital timestamp for real world test
 
     //tf msgs
-    tf::TransformBroadcaster tf_broadcast;
-    tf::Transform transform;
-    tf::TransformListener tf_listener;
-    tf::StampedTransform stamped_transform;
+    // tf::TransformBroadcaster tf_broadcast;
+    // tf::Transform transform;
+    // tf::TransformListener tf_listener;
+    // tf::StampedTransform stamped_transform;
 
     //radius
     float obstacle_radius;
@@ -168,6 +154,5 @@ private:
 
     void publishObjID();
 
-    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable);
-
-    pcl::PointXYZI IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids);
+    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable);
+};

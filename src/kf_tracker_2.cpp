@@ -31,7 +31,7 @@ bool ObstacleTrack::initialize()
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 10); // rviz visualization
 
         // Initialize Subscriber
-        pointnet_sub = nh_.subscribe("/predicted_centroid", 1, &ObstacleTrack::pointnetCallback, this);
+        pointnet_sub = nh_.subscribe("/people_pose", 1, &ObstacleTrack::pointnetCallback, this);
 
         time_init = ros::Time::now().toSec(); // for real world test
         ROS_INFO_STREAM("ObstacleTrack Initialized");
@@ -68,9 +68,9 @@ void ObstacleTrack::updateParam()
     nh_.param<bool>("/kf_tracker_2/param_fix", param_fix, true);
 }
 
-// subscribe callback func when use pointnet for detecting object's centroid 
+// subscribe callback func when use pointnet for detecting object's center 
 // subscribe pointnet x,y -> change to map tf -> ihgp
-void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input_msg)
+void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
 {   
     // TODO:
     // [] fix pointnet's output data to array
@@ -81,124 +81,172 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input_msg)
     // [] is it right to set tf from velodyne to object ? 
     //    --> need check for pointnet's output x,y point when moving velodyne's direction 
 
+
+    // [] change publishObstacles(), publishMarkers()
+    // [] change how to get dt_gp
+    // [] add code comments and clean up
     if (firstFrame)
     {
-        transform.setOrigin( tf::Vector3(array.data[0], array.data[1], 0.0) );
-        transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
-        tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/base_link", "/object"));
-
-        try
+        if (input.header.stamp.toSec() < 1.0e9)
         {
-            tf_listener.waitForTransform("/map", "/object", ros::Time(0), ros::Duration(3.0));
-            tf_listener.lookupTransform("/map", "/object", ros::Time(0), stamped_transform);
+            time_init = 0;
         }
-        catch (tf::TransformException &ex) {
-            ROS_ERROR("%s",ex.what());
-            ros::Duration(1.0).sleep();
+        if (input.header.stamp.toSec() - time_init < 0 && t_init==false)
+        {
+            time_init = input.header.stamp.toSec();
+            t_init = true;
         }
 
-        // get relative_centroid using transform    
-        pointnet_centroid.x = stamped_transform.getOrigin().x();
-        pointnet_centroid.y = stamped_transform.getOrigin().y();
-        pointnet_centroid.z = 0.0;
-        pointnet_centroid.intensity = ros::Time::now().toSec();
+        firstFrame = false;
 
-        // cout << pointnet_centroid.x << " " <<pointnet_centroid.y<<endl;
+        // TODO: change dt_gp to adaptive
+        dt_gp = 0.1;
 
-        
-        if (centroids.size() >= data_length) // centroids array update
-            {
-                firstFrame = false;
-                centroids.erase(centroids.begin());
-
-                float dt_sum;
-                for(int i=0; i!=centroids.size(); i++)
-                {
-                    dt_sum += centroids[i+1].intensity - centroids[i].intensity;
-                }
-                dt_gp = dt_sum/(centroids.size());
-
-                if (param_fix == true) 
-                {
-                    // Set hyperparameters
-                    model_x.setSigma2(exp(logSigma2_x_));
-                    model_x.setMagnSigma2(exp(logMagnSigma2_x_)); 
-                    model_x.setLengthScale(exp(logLengthScale_x_));
-
-                    model_y.setSigma2(exp(logSigma2_y_));
-                    model_y.setMagnSigma2(exp(logMagnSigma2_y_)); 
-                    model_y.setLengthScale(exp(logLengthScale_y_)); 
-
-                    gp_x.init_InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
-                    gp_y.init_InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
-                }
-
-                if (param_fix == false)
-                {
-                    // Set hyperparameters
-                    model_x.setSigma2(0.1);
-                    model_x.setMagnSigma2(0.1); 
-                    model_x.setLengthScale(0.1);
-
-                    model_y.setSigma2(0.1);
-                    model_y.setMagnSigma2(0.1); 
-                    model_y.setLengthScale(0.1); 
-                }
-            }
-        centroids.push_back(pointnet_centroid);
+        // ROS_INFO_STREAM("0");
     }
 
     else
-    {
-        // transform.setOrigin( tf::Vector3(array.data[0], array.data[1], 0.0) );
-        // transform.setRotation( tf::Quaternion(0, 0, 0, 1) );
-        // tf_broadcast.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/base_link", "/object"));
+    {   
+        // cout<<"========== "<<input.poses.size()<<endl;
 
-        // try
-        // {
-        //     tf_listener.waitForTransform("/map", "/object", ros::Time(0), ros::Duration(3.0));
-        //     tf_listener.lookupTransform("/map", "/object", ros::Time(0), stamped_transform);
-        // }
-        // catch (tf::TransformException &ex) {
-        //     ROS_ERROR("%s",ex.what());
-        //     ros::Duration(1.0).sleep();
-        // }
-
-        // // get relative_centroid using transform    
-        // pointnet_centroid.x = stamped_transform.getOrigin().x();
-        // pointnet_centroid.y = stamped_transform.getOrigin().y();
-        // pointnet_centroid.z = 0.0;
-        // pointnet_centroid.intensity = ros::Time::now().toSec();
-
-        
-        std::vector<pcl::PointXYZI> centroids; // t centroids
-
-        // centroids array update
-        pointnet_centroids.erase(pointnet_centroids.begin());
-        pointnet_centroids.push_back(centroids);
-
-        // Predict with GP 
-        pcl::PointXYZI predicted_centroid;
-        pcl::PointXYZI predicted_velocity;
-        if (param_fix == true) 
-        { 
-            predicted_centroid = IHGP_fixed(centroids, "pos"); 
-            predicted_velocity = IHGP_fixed(centroids, "vel");
+        // if empty data, return 0
+        if (input.poses.size() == 0)
+        {
+            ROS_INFO_STREAM("0. no dynamic obstacle(human)");
+            return;
         }
-        //else if(param_fix == false) { predicted_centroid = IHGP_nonfixed(centroids); }
 
-        // obstacle velocity bounding
-        double obs_max_vx = 1.0; // (m/s)
-        double obs_max_vy = 1.0;
-        if (predicted_velocity.x > obs_max_vx) {predicted_velocity.x = obs_max_vx;}
-        else if (predicted_velocity.x < -obs_max_vx) {predicted_velocity.x = -obs_max_vx;}
+        std::vector<int> this_objIDs = {}; // object ID
+        for (int i=0; i<input.poses.size(); i++)
+        {
+            // get objID
+            int objID = (input.poses[i].orientation.w)/2;
+            // cout<<"----------- "<<objID<<endl;
 
-        if (predicted_velocity.y > obs_max_vy) {predicted_velocity.y = obs_max_vy;}
-        else if (predicted_velocity.y < -obs_max_vy) {predicted_velocity.y = -obs_max_vy;}
+            // already registered obj
+            if (std::find(objIDs.begin(), objIDs.end(), objID) != objIDs.end() )
+            {
+                int index = std::find(objIDs.begin(), objIDs.end(), objID) - objIDs.begin();
 
-        // Publish state & rviz marker 
-        publishObstacles_2(predicted_centroid, predicted_velocity);
-        publishMarkers(predicted_centroid); //changed obstacle radius to 0.1
+                // linear interpolation for sparse data
+                pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];
+                if (input.header.stamp.toSec() - last_centroid.intensity > 2*dt_gp) // if there is lost data
+                {
+                    // ROS_INFO_STREAM("2. linear interpolation");
+                    double dx_total = input.poses[i].position.x - last_centroid.x; // dx between last timestamp and this timestamp
+                    double dy_total = input.poses[i].position.y - last_centroid.y; // dy between last timestamp and this timestamp
+                    double dz_total = input.poses[i].position.z - last_centroid.z; // dz between last timestamp and this timestamp
+                    double dt_total = input.header.stamp.toSec() - last_centroid.intensity; // dt between last timestamp and this timestamp
+                    int lost_num = (int)round(dt_total/dt_gp) - 1; // # of lost data
+
+                    // (lost_num) times of linear interpolation
+                    for (int i=0; i < lost_num; i++)
+                    {
+                        pcl::PointXYZI last_center = objects_centroids[index][data_length-1];
+
+                        pcl::PointXYZI center;
+                        center.x = last_center.x + dx_total/lost_num;
+                        center.y = last_center.y + dy_total/lost_num;
+                        center.z = last_center.z + dz_total/lost_num;
+                        center.intensity = last_center.intensity + dt_total/lost_num;
+                    
+                        objects_centroids[index].erase(objects_centroids[index].begin());
+                        objects_centroids[index].push_back(center);
+                    }
+                }
+                
+                // ROS_INFO_STREAM("2. update centroid");
+                // now update objects_centroids
+                pcl::PointXYZI center;
+                center.x = input.poses[i].position.x;
+                center.y = input.poses[i].position.y;
+                center.z = input.poses[i].position.z;
+                center.intensity = input.header.stamp.toSec();
+
+                objects_centroids[index].erase(objects_centroids[index].begin());
+                objects_centroids[index].push_back(center);
+
+                this_objIDs.push_back(objID);   
+            }
+            
+            else // if new object detects, register new GP model
+            {
+                // ROS_INFO_STREAM("1. start");
+                std::vector<pcl::PointXYZI> centroids;
+                
+                pcl::PointXYZI center;
+                center.x = input.poses[i].position.x;
+                center.y = input.poses[i].position.y;
+                center.z = input.poses[i].position.z;
+                center.intensity = input.header.stamp.toSec();
+
+                // fill every data with current input
+                for (int j = 0; j < data_length; j++)
+                {
+                    centroids.push_back(center);
+                }
+                objects_centroids.push_back(centroids);
+
+                // Set IHGP hyperparameters
+                Matern32model model_x;
+                Matern32model model_y;
+                model_x.setSigma2(exp(logSigma2_x_));
+                model_x.setMagnSigma2(exp(logMagnSigma2_x_)); 
+                model_x.setLengthScale(exp(logLengthScale_x_));
+
+                model_y.setSigma2(exp(logSigma2_y_));
+                model_y.setMagnSigma2(exp(logMagnSigma2_y_)); 
+                model_y.setLengthScale(exp(logLengthScale_y_));
+
+                // GP initialization
+                GPs_x.push_back(new InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR()));
+                GPs_y.push_back(new InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR()));
+
+                // register objID
+                this_objIDs.push_back(objID);
+                objIDs.push_back(objID);
+                // ROS_INFO_STREAM("1. done");               
+            }
+        }
+
+        // ROS_INFO_STREAM("3. start");
+
+        // call IHGP
+        std::vector<std::vector<pcl::PointXYZI>> pos_vel_s; // vector stack for objects pose and velocity
+        int output_size = 2*this_objIDs.size();
+        pos_vel_s.reserve(output_size);
+
+        for (const int& n: this_objIDs)
+        {
+            int index = std::find(objIDs.begin(), objIDs.end(), n) - objIDs.begin();
+
+            std::vector<pcl::PointXYZI> pos_vel;
+            pos_vel.reserve(2);
+
+            pcl::PointXYZI pos = IHGP_fixed(objects_centroids[index], index, "pos"); 
+            pcl::PointXYZI vel = IHGP_fixed(objects_centroids[index], index, "vel");
+
+            // obstacle velocity bounding
+            if (vel.x > 2.0) {vel.x = 2.0;}
+            else if (vel.x < -2.0) {vel.x = -2.0;}
+
+            if (vel.y > 2.0) {vel.y = 2.0;}
+            else if (vel.y < -2.0) {vel.y = -2.0;}
+
+            // cout<<"["<<n<<"] "<<pos.x<<", "<<pos.y<<endl;
+            double velocity = sqrt(pow(vel.x,2) + pow(vel.y,2));
+            cout<<"["<<n<<"] "<<velocity<<endl;
+
+            pos_vel.push_back(pos);
+            pos_vel.push_back(vel);
+            pos_vel_s.push_back(pos_vel);
+        }
+
+        // ROS_INFO_STREAM("3. done");
+
+        // Publish state & rviz marker
+        // publishObstacles()
+        // publishMarkers();
     }
 }
 
@@ -284,10 +332,10 @@ void ObstacleTrack::publishMarkers(pcl::PointXYZI predicted_centroid)
     marker_pub.publish(obstacleMarkers);
 }
 
-pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable)
+pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable)
 {
-    gp_x.init_step();
-    gp_y.init_step();
+    GPs_x[n]->init_step();
+    GPs_y[n]->init_step();
 
     // Data pre-precessing
     double mean_x;
@@ -326,120 +374,29 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, 
     {
         for (int k=0; k<=gp_data_len; k++)
         {
-            gp_x.update(vx_raw[k] - mean_x);
-            gp_y.update(vy_raw[k] - mean_y);
+            GPs_x[n]->update(vx_raw[k] - mean_x);
+            GPs_y[n]->update(vy_raw[k] - mean_y);
         }
     }
     else if(variable == "pos")
     {
         for (int k=0; k<=gp_data_len; k++)
         {
-            gp_x.update(centroids[k].x - mean_x);
-            gp_y.update(centroids[k].y - mean_y);
+            GPs_x[n]->update(centroids[k].x - mean_x);
+            GPs_y[n]->update(centroids[k].y - mean_y);
         }
     }
 
     // Pull out the marginal mean and variance estimates
-    Eft_x = gp_x.getEft();
-    Eft_y = gp_y.getEft();
+    std::vector<double> Eft_x = GPs_x[n]->getEft();
+    std::vector<double> Eft_y = GPs_y[n]->getEft();
 
     // make PCL::PointXYZI data
-    pcl::PointXYZI predicted_centroid;
-    predicted_centroid.x = Eft_x[gp_data_len] + mean_x;
-    predicted_centroid.y = Eft_y[gp_data_len] + mean_y;
-    predicted_centroid.z = 0.0;
-    predicted_centroid.intensity = centroids[data_length-1].intensity;
+    pcl::PointXYZI predicted_data;
+    predicted_data.x = Eft_x[gp_data_len] + mean_x;
+    predicted_data.y = Eft_y[gp_data_len] + mean_y;
+    predicted_data.z = 0.0;
+    predicted_data.intensity = centroids[data_length-1].intensity;
   
-    return predicted_centroid;
-}
-
-pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids)
-{
-    // // Do inference
-    // gp_x.init_InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR());
-    // gp_y.init_InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR());
-
-    // // Loop through data
-    // for (int k=0; k<data_length; k++)
-    // {
-    //     gp_x.update(centroids[k].x - calibration_x);
-    //     gp_y.update(centroids[k].y - calibration_y);
-    // }
-    
-    // // Pull out the gradient (account for log-transformation)
-    // double logSigma2_x = log(model_x.getSigma2());
-    // double logMagnSigma2_x = log(model_x.getMagnSigma2());
-    // double logLengthScale_x = log(model_x.getLengthScale());
-    // double dLikdlogSigma2_x = model_x.getSigma2() * gp_x.getLikDeriv()(0);
-    // double dLikdlogMagnSigma2_x = model_x.getMagnSigma2() * gp_x.getLikDeriv()(1);
-    // double dLikdlogLengthScale_x = model_x.getLengthScale() * gp_x.getLikDeriv()(2);
-
-    // double logSigma2_y = log(model_y.getSigma2());
-    // double logMagnSigma2_y = log(model_y.getMagnSigma2());
-    // double logLengthScale_y = log(model_y.getLengthScale());
-    // double dLikdlogSigma2_y = model_y.getSigma2() * gp_y.getLikDeriv()(0);
-    // double dLikdlogMagnSigma2_y = model_y.getMagnSigma2() * gp_y.getLikDeriv()(1);
-    // double dLikdlogLengthScale_y = model_y.getLengthScale() * gp_y.getLikDeriv()(2);
-    
-    // // Do the gradient descent step
-    // // logSigma2_x = logSigma2_x - 0.1*dLikdlogSigma2_x;
-    // logMagnSigma2_x = logMagnSigma2_x - 0.1*dLikdlogMagnSigma2_x;
-    // logLengthScale_x = logLengthScale_x - 0.01*dLikdlogLengthScale_x;
-
-    // // logSigma2_y = logSigma2_y - 0.1*dLikdlogSigma2_y;
-    // logMagnSigma2_y = logMagnSigma2_y - 0.1*dLikdlogMagnSigma2_y;
-    // logLengthScale_y = logLengthScale_y - 0.01*dLikdlogLengthScale_y;
-    
-    // // Introduce contraints to keep the behavior better in control
-    // // if (logSigma2_x < -10) { logSigma2_x = -10; } else if (logSigma2_x > 10) { logSigma2_x = 10; }
-    // if (logMagnSigma2_x < -10) { logMagnSigma2_x = -10; } else if (logMagnSigma2_x > 10) { logMagnSigma2_x = 10; }
-    // if (logLengthScale_x < -10) { logLengthScale_x = -10; } else if (logLengthScale_x > 10) { logLengthScale_x = 10; }
-
-    // // if (logSigma2_y < -10) { logSigma2_y = -10; } else if (logSigma2_y > 10) { logSigma2_y = 10; }
-    // if (logMagnSigma2_y < -10) { logMagnSigma2_y = -10; } else if (logMagnSigma2_y > 10) { logMagnSigma2_y = 10; }
-    // if (logLengthScale_y < -10) { logLengthScale_y = -10; } else if (logLengthScale_y > 10) { logLengthScale_y = 10; }
-
-    // // Update the model
-    // // model_x.setSigma2(exp(logSigma2_x));
-    // model_x.setMagnSigma2(exp(logMagnSigma2_x));
-    // model_x.setLengthScale(exp(logLengthScale_x));
-
-    // // model_y.setSigma2(exp(logSigma2_y));
-    // model_y.setMagnSigma2(exp(logMagnSigma2_y));
-    // model_y.setLengthScale(exp(logLengthScale_y));
-    
-    // // Check if this went bad and re-initialize
-    // if (isnan(model_x.getMagnSigma2()) | isnan(model_x.getLengthScale()) |
-    //     isinf(model_x.getMagnSigma2()) | isinf(model_x.getLengthScale())) {
-    //     model_x.setMagnSigma2(1.0);
-    //     model_x.setLengthScale(1.0);
-    //     cout<<"[error] Bad parameters."<<endl;
-    // }
-    //     if (isnan(model_y.getMagnSigma2()) | isnan(model_y.getLengthScale()) |
-    //     isinf(model_y.getMagnSigma2()) | isinf(model_y.getLengthScale())) {
-    //     model_y.setMagnSigma2(1.0);
-    //     model_y.setLengthScale(1.0);
-    //     cout<<"[error] Bad parameters."<<endl;
-    // }
-
-    // // Pull out the marginal mean and variance estimates
-    // Eft_x = gp_x.getEft();
-    // Eft_y = gp_y.getEft();
-
-    // // vel_x = (Eft_x[data_length-3] - 4*Eft_x[data_length-2] + 3*Eft_x[data_length-1])/(2*dt_gp);
-    // // vel_y = (Eft_y[data_length-3] - 4*Eft_y[data_length-2] + 3*Eft_y[data_length-1])/(2*dt_gp);
-    // vel_x = (Eft_x[data_length-1]-Eft_x[data_length-2])/dt_gp;
-    // vel_y = (Eft_y[data_length-1]-Eft_y[data_length-2])/dt_gp;
-
-    // pcl::PointXYZI predicted_centroid;
-    // predicted_centroid.x = Eft_x[data_length-1] + calibration_x;
-    // predicted_centroid.y = Eft_y[data_length-1] + calibration_y;
-    // predicted_centroid.z = 0.0;
-    // predicted_centroid.intensity = centroids[data_length-1].intensity;
-
-    // calibration_x = Eft_x[data_length-1] + calibration_x;
-    // calibration_y = Eft_y[data_length-1] + calibration_y;
-    
-    // return predicted_centroid;
-    ;
+    return predicted_data;
 }

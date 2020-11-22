@@ -10,18 +10,7 @@
 
  <!-- Launch PCL obstacle tracker -->
   <node pkg='kf_tracker_2' type='kf_tracker_2_node' name='kf_tracker_2' output="screen">
-    <param name='frequency' value='10.1'/>
-
-    <param name='obstacle_num' value='1'/>
-    <param name='cluster_tolerance' value='0.15'/>
-    <param name='min_cluster_size' value='5'/>
-    <param name='max_cluster_size' value='300'/>
-    <param name='voxel_leaf_size' value='0.1'/>
-
-    <!-- Log scale hyper-parameter -->
-    <!--param name='smooth_Sigma2' value='1.0'/>
-    <param name='smooth_MagnSigma2' value='1.0'/>
-    <param name='smooth_LengthScale' value='1.0'/-->
+    <param name='frequency' value='10.0'/>
 
     <param name='logSigma2_x' value='-5.5'/>
     <param name='logMagnSigma2_x' value='-3.5'/>
@@ -31,7 +20,7 @@
     <param name='logMagnSigma2_y' value='-3.5'/> 
     <param name='logLengthScale_y' value='0.75'/> 
 
-    <param name='data_length' value='10'/>
+    <param name='data_length' value='40'/>
     <param name='param_fix' value='true'/>
 
   </node>

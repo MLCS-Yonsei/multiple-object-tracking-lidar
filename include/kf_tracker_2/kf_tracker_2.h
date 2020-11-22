@@ -100,7 +100,7 @@ public:
     
     // Stack of objects position
     std::vector<std::vector<pcl::PointXYZI>> objects_centroids; 
-    std::vector<int> objIDs = {}; // object ID
+    std::vector<int> objIDs = {}; // All registered object IDs while running node
 
     // IHGP
     float dt_gp;  
@@ -108,11 +108,7 @@ public:
     std::vector<InfiniteHorizonGP*> GPs_y;
     
     // configuration
-    int obstacle_num_;
-    float ClusterTolerance_; // (m) default 0.3
-    int MinClusterSize_; // default 10
-    int MaxClusterSize_; // default 600
-    float VoxelLeafSize_;
+    float frequency;
 
     double logSigma2_x_;
     double logMagnSigma2_x_;
@@ -127,7 +123,6 @@ public:
 
     // check
     bool firstFrame = true;
-    bool t_init = false;
     double time_init; // inital timestamp for real world test
 
     //tf msgs
@@ -147,12 +142,13 @@ private:
 
     void pointnetCallback(const geometry_msgs::PoseArray input_msg);
 
-    void publishObstacles(pcl::PointXYZI predicted_centroid, \
-        pcl::PointXYZI predicted_velocity);
+    void publishObstacles(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, \
+                        std::string frame_id, \
+                        std::vector<int> this_objIDs);
 
-    void publishMarkers(pcl::PointXYZI predicted_centroid);
-
-    void publishObjID();
+    void publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, \
+                        std::string frame_id, \
+                        std::vector<int> this_objIDs);
 
     pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable);
 };

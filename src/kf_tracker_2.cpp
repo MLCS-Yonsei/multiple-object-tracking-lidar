@@ -45,16 +45,7 @@ bool ObstacleTrack::initialize()
 
 void ObstacleTrack::updateParam()
 {
-    nh_.param<int>("/kf_tracker_2/obstacle_num", obstacle_num_, 1); // # of maximum observable obstacle 
-    nh_.param<float>("/kf_tracker_2/cluster_tolerance", ClusterTolerance_, 0.15); // pcl extraction tolerance
-    nh_.param<int>("/kf_tracker_2/min_cluster_size", MinClusterSize_, 5);
-    nh_.param<int>("/kf_tracker_2/max_cluster_size", MaxClusterSize_, 200);
-    nh_.param<float>("/kf_tracker_2/voxel_leaf_size", VoxelLeafSize_, 0.05); // default is same with map resolution
-
-    // log scale hyperparameter
-    // nh_.param<double>("/kf_tracker_2/smooth_Sigma2", smooth_Sigma2, 0.5);
-    // nh_.param<double>("/kf_tracker_2/smooth_MagnSigma2", smooth_MagnSigma2, 1.0);
-    // nh_.param<double>("/kf_tracker_2/smooth_LengthScale", smooth_LengthScale, 1.1);
+    nh_.param<float>("/kf_tracker_2/frequency", frequency, 10.0);
 
     nh_.param<double>("/kf_tracker_2/logSigma2_x", logSigma2_x_, -5.5); // measurement noise
     nh_.param<double>("/kf_tracker_2/logMagnSigma2_x", logMagnSigma2_x_, -3.5);
@@ -69,74 +60,62 @@ void ObstacleTrack::updateParam()
 }
 
 // subscribe callback func when use pointnet for detecting object's center 
-// subscribe pointnet x,y -> change to map tf -> ihgp
 void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
 {   
     // TODO:
-    // [] fix pointnet's output data to array
-    // [] insert input header frame (before: sensor msgs header, now: ros::Time::now() )
     // [] set ihgp params
-    // [] how to do when more than 1 object detected? use vector ros tf?
-    // [] how to measure object's radius (before: 2 point's euc distance, now : 0.1) 
-    // [] is it right to set tf from velodyne to object ? 
-    //    --> need check for pointnet's output x,y point when moving velodyne's direction 
-
-
-    // [] change publishObstacles(), publishMarkers()
+    // [] how to measure object's radius (before: 2 point's euc distance, now : 0.3 constant) 
     // [] change how to get dt_gp
-    // [] add code comments and clean up
+
+    // timestamp, dt_gp initialization
     if (firstFrame)
     {
-        if (input.header.stamp.toSec() < 1.0e9)
+        // if gazebo world, reset time_init as 0
+        if (input.header.stamp.toSec() < 1.0e9) 
         {
             time_init = 0;
         }
-        if (input.header.stamp.toSec() - time_init < 0 && t_init==false)
+        // if real world rosbag (past data), reset time_init as first input timestamp
+        if (input.header.stamp.toSec() < time_init) 
         {
             time_init = input.header.stamp.toSec();
-            t_init = true;
         }
 
         firstFrame = false;
 
         // TODO: change dt_gp to adaptive
-        dt_gp = 0.1;
-
-        // ROS_INFO_STREAM("0");
+        dt_gp = 1/frequency;
     }
 
     else
     {   
-        // cout<<"========== "<<input.poses.size()<<endl;
-
-        // if empty data, return 0
+        // if empty data, stop callback
         if (input.poses.size() == 0)
         {
-            ROS_INFO_STREAM("0. no dynamic obstacle(human)");
+            ROS_INFO_STREAM("there is no dynamic obstacle(human) or tracking loss");
             return;
         }
 
-        std::vector<int> this_objIDs = {}; // object ID
+        std::vector<int> this_objIDs = {}; // object ID for latest input msg
         for (int i=0; i<input.poses.size(); i++)
         {
             // get objID
             int objID = (input.poses[i].orientation.w)/2;
-            // cout<<"----------- "<<objID<<endl;
 
-            // already registered obj
+            // if already registered obj msg
             if (std::find(objIDs.begin(), objIDs.end(), objID) != objIDs.end() )
             {
+                // index of objects_centroids about objID
                 int index = std::find(objIDs.begin(), objIDs.end(), objID) - objIDs.begin();
 
                 // linear interpolation for sparse data
                 pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];
-                if (input.header.stamp.toSec() - last_centroid.intensity > 2*dt_gp) // if there is lost data
+                if (input.header.stamp.toSec()  - time_init - last_centroid.intensity > 2*dt_gp) // if there is lost data
                 {
-                    // ROS_INFO_STREAM("2. linear interpolation");
                     double dx_total = input.poses[i].position.x - last_centroid.x; // dx between last timestamp and this timestamp
                     double dy_total = input.poses[i].position.y - last_centroid.y; // dy between last timestamp and this timestamp
                     double dz_total = input.poses[i].position.z - last_centroid.z; // dz between last timestamp and this timestamp
-                    double dt_total = input.header.stamp.toSec() - last_centroid.intensity; // dt between last timestamp and this timestamp
+                    double dt_total = input.header.stamp.toSec()  - time_init - last_centroid.intensity; // dt between last timestamp and this timestamp
                     int lost_num = (int)round(dt_total/dt_gp) - 1; // # of lost data
 
                     // (lost_num) times of linear interpolation
@@ -148,37 +127,35 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
                         center.x = last_center.x + dx_total/lost_num;
                         center.y = last_center.y + dy_total/lost_num;
                         center.z = last_center.z + dz_total/lost_num;
-                        center.intensity = last_center.intensity + dt_total/lost_num;
-                    
+                        center.intensity = last_center.intensity + dt_gp;
+
                         objects_centroids[index].erase(objects_centroids[index].begin());
                         objects_centroids[index].push_back(center);
                     }
                 }
-                
-                // ROS_INFO_STREAM("2. update centroid");
+
                 // now update objects_centroids
                 pcl::PointXYZI center;
                 center.x = input.poses[i].position.x;
                 center.y = input.poses[i].position.y;
                 center.z = input.poses[i].position.z;
-                center.intensity = input.header.stamp.toSec();
+                center.intensity = input.header.stamp.toSec() - time_init;
 
                 objects_centroids[index].erase(objects_centroids[index].begin());
                 objects_centroids[index].push_back(center);
-
-                this_objIDs.push_back(objID);   
+                
+                this_objIDs.push_back(objID); // add objID to queue (now observable objects)
             }
-            
-            else // if new object detects, register new GP model
+            // if new object detects, register new GP model
+            else 
             {
-                // ROS_INFO_STREAM("1. start");
                 std::vector<pcl::PointXYZI> centroids;
                 
                 pcl::PointXYZI center;
                 center.x = input.poses[i].position.x;
                 center.y = input.poses[i].position.y;
                 center.z = input.poses[i].position.z;
-                center.intensity = input.header.stamp.toSec();
+                center.intensity = input.header.stamp.toSec() - time_init;
 
                 // fill every data with current input
                 for (int j = 0; j < data_length; j++)
@@ -204,23 +181,22 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
 
                 // register objID
                 this_objIDs.push_back(objID);
-                objIDs.push_back(objID);
-                // ROS_INFO_STREAM("1. done");               
+                objIDs.push_back(objID);           
             }
         }
 
-        // ROS_INFO_STREAM("3. start");
-
-        // call IHGP
+        // define vector for position and velocity
         std::vector<std::vector<pcl::PointXYZI>> pos_vel_s; // vector stack for objects pose and velocity
         int output_size = 2*this_objIDs.size();
         pos_vel_s.reserve(output_size);
 
+        // call IHGP
         for (const int& n: this_objIDs)
         {
+            // objID index for call GPs_x,y
             int index = std::find(objIDs.begin(), objIDs.end(), n) - objIDs.begin();
 
-            std::vector<pcl::PointXYZI> pos_vel;
+            std::vector<pcl::PointXYZI> pos_vel; // vector stack for one object pose and velocity
             pos_vel.reserve(2);
 
             pcl::PointXYZI pos = IHGP_fixed(objects_centroids[index], index, "pos"); 
@@ -233,102 +209,160 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
             if (vel.y > 2.0) {vel.y = 2.0;}
             else if (vel.y < -2.0) {vel.y = -2.0;}
 
-            // cout<<"["<<n<<"] "<<pos.x<<", "<<pos.y<<endl;
-            double velocity = sqrt(pow(vel.x,2) + pow(vel.y,2));
-            cout<<"["<<n<<"] "<<velocity<<endl;
-
             pos_vel.push_back(pos);
-            pos_vel.push_back(vel);
-            pos_vel_s.push_back(pos_vel);
+            pos_vel.push_back(vel); // e.g. pos_vel = [pos3, vel3]
+            pos_vel_s.push_back(pos_vel); // e.g. pos_vel_s = [[pos1, vel1], [pos3, vel3], ...]
         }
 
-        // ROS_INFO_STREAM("3. done");
-
         // Publish state & rviz marker
-        // publishObstacles()
-        // publishMarkers();
+        std::string frame_id = input.header.frame_id;
+
+        publishObstacles(pos_vel_s, frame_id, this_objIDs);   
+        publishMarkers(pos_vel_s, frame_id, this_objIDs);
     }
 }
 
-void ObstacleTrack::publishObstacles(pcl::PointXYZI position, pcl::PointXYZI velocity)
+void ObstacleTrack::publishObstacles(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, std::string frame_id, std::vector<int> this_objIDs)
 {
     costmap_converter::ObstacleArrayMsg obstacle_array;
-    costmap_converter::ObstacleMsg obstacle;
 
     // ObstacleArray header
     obstacle_array.header.stamp = ros::Time::now();
     obstacle_array.header.frame_id = "map";
-    
-    obstacle_array.obstacles.push_back(costmap_converter::ObstacleMsg());
-    obstacle_array.obstacles[0].id = 99;
-    obstacle_array.obstacles[0].radius = 0.1; //obstacle_radius
-    obstacle_array.obstacles[0].header.stamp = ros::Time::now();
-    obstacle_array.obstacles[0].header.frame_id = "map";
 
-    // velocity
-    obstacle_array.obstacles[0].velocities.twist.linear.x = velocity.x;
-    obstacle_array.obstacles[0].velocities.twist.linear.y = velocity.y;
-    obstacle_array.obstacles[0].velocities.twist.linear.z = 0;
-    obstacle_array.obstacles[0].velocities.twist.angular.x = 0;
-    obstacle_array.obstacles[0].velocities.twist.angular.y = 0;
-    obstacle_array.obstacles[0].velocities.twist.angular.z = 0;
+    for (int i=0; i<pos_vel_s.size(); i++)
+    {
+        costmap_converter::ObstacleMsg obstacle;
+        obstacle_array.obstacles.push_back(costmap_converter::ObstacleMsg());
 
-    obstacle_array.obstacles[0].velocities.covariance[0] = .1;
-    obstacle_array.obstacles[0].velocities.covariance[7] = .1;
-    obstacle_array.obstacles[0].velocities.covariance[14] = 1e9;
-    obstacle_array.obstacles[0].velocities.covariance[21] = 1e9;
-    obstacle_array.obstacles[0].velocities.covariance[28] = 1e9;
-    obstacle_array.obstacles[0].velocities.covariance[35] = .1;
+        obstacle_array.obstacles[i].id = this_objIDs[i];
+        obstacle_array.obstacles[i].radius = 0.3; //obstacle_radius
+        obstacle_array.obstacles[i].header.stamp = ros::Time::now();
+        obstacle_array.obstacles[i].header.frame_id = frame_id;
 
-    // orientation
-    float yaw;
-    yaw = atan2(velocity.y, velocity.x);
-    tf2::Quaternion Quaternion;
-    Quaternion.setRPY(0,0,yaw);
-    geometry_msgs::Quaternion quat_msg;
-    quat_msg = tf2::toMsg(Quaternion);
-    obstacle_array.obstacles[0].orientation = quat_msg;
+        // velocity
+        obstacle_array.obstacles[i].velocities.twist.linear.x = pos_vel_s[i][1].x;
+        obstacle_array.obstacles[i].velocities.twist.linear.y = pos_vel_s[i][1].y;
+        obstacle_array.obstacles[i].velocities.twist.linear.z = 0;
+        obstacle_array.obstacles[i].velocities.twist.angular.x = 0;
+        obstacle_array.obstacles[i].velocities.twist.angular.y = 0;
+        obstacle_array.obstacles[i].velocities.twist.angular.z = 0;
 
-    // Polygon of obstacle
-    std::vector<geometry_msgs::Point32> _points(1);
-    obstacle_array.obstacles[0].polygon.points = _points;
-    obstacle_array.obstacles[0].polygon.points[0].x = position.x;
-    obstacle_array.obstacles[0].polygon.points[0].y = position.y;
-    obstacle_array.obstacles[0].polygon.points[0].z = 0;
+        obstacle_array.obstacles[i].velocities.covariance[0] = .1;
+        obstacle_array.obstacles[i].velocities.covariance[7] = .1;
+        obstacle_array.obstacles[i].velocities.covariance[14] = 1e9;
+        obstacle_array.obstacles[i].velocities.covariance[21] = 1e9;
+        obstacle_array.obstacles[i].velocities.covariance[28] = 1e9;
+        obstacle_array.obstacles[i].velocities.covariance[35] = .1;
 
+        // orientation
+        float yaw;
+        yaw = atan2(pos_vel_s[i][1].x, pos_vel_s[i][1].y);
+        tf2::Quaternion Quaternion;
+        Quaternion.setRPY(0,0,yaw);
+        geometry_msgs::Quaternion quat_msg;
+        quat_msg = tf2::toMsg(Quaternion);
+        obstacle_array.obstacles[i].orientation = quat_msg;
 
-    obstacle_pub.publish(obstacle_array);
+        // Polygon of obstacle
+        std::vector<geometry_msgs::Point32> _points(1);
+        obstacle_array.obstacles[i].polygon.points = _points;
+        obstacle_array.obstacles[i].polygon.points[0].x = pos_vel_s[i][0].x;
+        obstacle_array.obstacles[i].polygon.points[0].y = pos_vel_s[i][0].y;
+        obstacle_array.obstacles[i].polygon.points[0].z = 0;
 
-    //Completed: move_base의 teb planner에게 obstacle 전달
-    //TODO: navigation 돌리면서 local costmap과 path 확인해보기
+        obstacle_pub.publish(obstacle_array);
+    }
 }
 
-void ObstacleTrack::publishMarkers(pcl::PointXYZI predicted_centroid)
+void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, std::string frame_id, std::vector<int> this_objIDs)
 {
     visualization_msgs::MarkerArray obstacleMarkers;
-    // for (int i=0;i<predicted_centroid.size();i++)
-    int i=0;
+
+    // pose marker
+    for (int i=0; i<pos_vel_s.size(); i++)
     {
         visualization_msgs::Marker m;
 
-        m.id=i;
-        m.header.frame_id="/map";
-        m.type=visualization_msgs::Marker::CYLINDER;
-        m.action=visualization_msgs::Marker::ADD;
-        m.scale.x=2*0.1;         m.scale.y=2*0.1;         m.scale.z=0.05;
+        m.id = this_objIDs[i];
+        m.header.frame_id = frame_id;
+        m.type = visualization_msgs::Marker::CYLINDER;
+        m.action = visualization_msgs::Marker::ADD;
+        m.scale.x = 2*0.25;         m.scale.y = 2*0.25;         m.scale.z = 0.05;
         // m.scale.x=2*obstacle_radius;         m.scale.y=2*obstacle_radius;         m.scale.z=0.05;
+        
+        m.color.r=0.5;
+        m.color.g=0.5;
+        m.color.b=0.5;
+        m.color.a=0.7;
+
+        m.pose.position.x = pos_vel_s[i][0].x;
+        m.pose.position.y = pos_vel_s[i][0].y;
+        m.pose.position.z = 0.0;  
+
+        obstacleMarkers.markers.push_back(m);
+    }
+
+    // velocity text marker
+    for (int i=0; i<pos_vel_s.size(); i++)
+    {
+        visualization_msgs::Marker m;
+
+        m.id = this_objIDs[i] + pos_vel_s.size();
+        m.header.frame_id = frame_id;
+        m.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+        m.action = visualization_msgs::Marker::ADD;
+        m.scale.z = 0.25; // text size
+        
+        m.color.r=1.0;
+        m.color.g=1.0;
+        m.color.b=1.0;
+        m.color.a=1.0;
+
+        m.pose.position.x = pos_vel_s[i][0].x;
+        m.pose.position.y = pos_vel_s[i][0].y + 0.35;
+        m.pose.position.z = 0.0;  
+
+        double velocity = sqrt(pow(pos_vel_s[i][1].x, 2) + pow(pos_vel_s[i][1].y, 2));
+        m.text = to_string(velocity);
+
+        obstacleMarkers.markers.push_back(m);
+    }
+
+    // velocity array marker
+    for (int i=0; i<pos_vel_s.size(); i++)
+    {
+        visualization_msgs::Marker m;
+
+        m.id = this_objIDs[i] + 2*pos_vel_s.size();
+        m.header.frame_id = frame_id;
+        m.type = visualization_msgs::Marker::ARROW;
+        m.action = visualization_msgs::Marker::ADD;
+
+        // arrow orientation    arrow width         arrow height
+        m.scale.x = 0.08;         m.scale.y = 0.15;         m.scale.z = 0.2;
         
         m.color.r=0.75;
         m.color.g=0.0;
         m.color.b=0.0;
         m.color.a=1.0;
 
-        m.pose.position.x=predicted_centroid.x;
-        m.pose.position.y=predicted_centroid.y;
-        m.pose.position.z=0.0;  
+        geometry_msgs::Point arrow_yaw;
+        // specify start point for arrow
+        arrow_yaw.x = pos_vel_s[i][0].x;
+        arrow_yaw.y = pos_vel_s[i][0].y;
+        arrow_yaw.z = 0.0;
+        m.points.push_back(arrow_yaw);
+
+        // specify start point for arrow
+        arrow_yaw.x = pos_vel_s[i][0].x + 1*pos_vel_s[i][1].x;
+        arrow_yaw.y = pos_vel_s[i][0].y + 1*pos_vel_s[i][1].y;
+        arrow_yaw.z = 0.0;
+        m.points.push_back(arrow_yaw);
 
         obstacleMarkers.markers.push_back(m);
     }
+
     marker_pub.publish(obstacleMarkers);
 }
 

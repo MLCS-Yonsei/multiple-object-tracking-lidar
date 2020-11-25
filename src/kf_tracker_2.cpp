@@ -92,7 +92,7 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
         // if empty data, stop callback
         if (input.poses.size() == 0)
         {
-            ROS_INFO_STREAM("there is no dynamic obstacle(human) or tracking loss");
+            ROS_INFO_STREAM("there is no dynamic obstacle(human) or impossible to trace");
             return;
         }
 
@@ -109,114 +109,32 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
                 int index = std::find(objIDs.begin(), objIDs.end(), objID) - objIDs.begin();
 
                 // linear interpolation for sparse data
-                pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];
-                if (input.header.stamp.toSec()  - time_init - last_centroid.intensity > 2*dt_gp) // if there is lost data
-                {
-                    double dx_total = input.poses[i].position.x - last_centroid.x; // dx between last timestamp and this timestamp
-                    double dy_total = input.poses[i].position.y - last_centroid.y; // dy between last timestamp and this timestamp
-                    double dz_total = input.poses[i].position.z - last_centroid.z; // dz between last timestamp and this timestamp
-                    double dt_total = input.header.stamp.toSec()  - time_init - last_centroid.intensity; // dt between last timestamp and this timestamp
-                    int lost_num = (int)round(dt_total/dt_gp) - 1; // # of lost data
-
-                    // (lost_num) times of linear interpolation
-                    for (int i=0; i < lost_num; i++)
-                    {
-                        pcl::PointXYZI last_center = objects_centroids[index][data_length-1];
-
-                        pcl::PointXYZI center;
-                        center.x = last_center.x + dx_total/lost_num;
-                        center.y = last_center.y + dy_total/lost_num;
-                        center.z = last_center.z + dz_total/lost_num;
-                        center.intensity = last_center.intensity + dt_gp;
-
-                        objects_centroids[index].erase(objects_centroids[index].begin());
-                        objects_centroids[index].push_back(center);
-                    }
-                }
+                fill_with_linear_interpolation(i, input, index);
 
                 // now update objects_centroids
-                pcl::PointXYZI center;
-                center.x = input.poses[i].position.x;
-                center.y = input.poses[i].position.y;
-                center.z = input.poses[i].position.z;
-                center.intensity = input.header.stamp.toSec() - time_init;
-
-                objects_centroids[index].erase(objects_centroids[index].begin());
-                objects_centroids[index].push_back(center);
+                updateObstacleQueue(i, input, index);
                 
-                this_objIDs.push_back(objID); // add objID to queue (now observable objects)
+                // add objID to queue (now observable objects)
+                this_objIDs.push_back(objID); 
             }
             // if new object detects, register new GP model
             else 
             {
-                std::vector<pcl::PointXYZI> centroids;
-                
-                pcl::PointXYZI center;
-                center.x = input.poses[i].position.x;
-                center.y = input.poses[i].position.y;
-                center.z = input.poses[i].position.z;
-                center.intensity = input.header.stamp.toSec() - time_init;
+                // register new GP model with input
+                registerNewObstacle(i, input, objID);
 
-                // fill every data with current input
-                for (int j = 0; j < data_length; j++)
-                {
-                    centroids.push_back(center);
-                }
-                objects_centroids.push_back(centroids);
-
-                // Set IHGP hyperparameters
-                Matern32model model_x;
-                Matern32model model_y;
-                model_x.setSigma2(exp(logSigma2_x_));
-                model_x.setMagnSigma2(exp(logMagnSigma2_x_)); 
-                model_x.setLengthScale(exp(logLengthScale_x_));
-
-                model_y.setSigma2(exp(logSigma2_y_));
-                model_y.setMagnSigma2(exp(logMagnSigma2_y_)); 
-                model_y.setLengthScale(exp(logLengthScale_y_));
-
-                // GP initialization
-                GPs_x.push_back(new InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR()));
-                GPs_y.push_back(new InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR()));
-
-                // register objID
+                // register new objID & add objID to queue (now observable objects)
                 this_objIDs.push_back(objID);
-                objIDs.push_back(objID);           
+                objIDs.push_back(objID);     
             }
         }
 
-        // define vector for position and velocity
-        std::vector<std::vector<pcl::PointXYZI>> pos_vel_s; // vector stack for objects pose and velocity
-        int output_size = 2*this_objIDs.size();
-        pos_vel_s.reserve(output_size);
-
         // call IHGP
-        for (const int& n: this_objIDs)
-        {
-            // objID index for call GPs_x,y
-            int index = std::find(objIDs.begin(), objIDs.end(), n) - objIDs.begin();
-
-            std::vector<pcl::PointXYZI> pos_vel; // vector stack for one object pose and velocity
-            pos_vel.reserve(2);
-
-            pcl::PointXYZI pos = IHGP_fixed(objects_centroids[index], index, "pos"); 
-            pcl::PointXYZI vel = IHGP_fixed(objects_centroids[index], index, "vel");
-
-            // obstacle velocity bounding
-            if (vel.x > 2.0) {vel.x = 2.0;}
-            else if (vel.x < -2.0) {vel.x = -2.0;}
-
-            if (vel.y > 2.0) {vel.y = 2.0;}
-            else if (vel.y < -2.0) {vel.y = -2.0;}
-
-            pos_vel.push_back(pos);
-            pos_vel.push_back(vel); // e.g. pos_vel = [pos3, vel3]
-            pos_vel_s.push_back(pos_vel); // e.g. pos_vel_s = [[pos1, vel1], [pos3, vel3], ...]
-        }
+        std::vector<std::vector<pcl::PointXYZI>> pos_vel_s;
+        pos_vel_s = callIHGP(this_objIDs);
 
         // Publish state & rviz marker
         std::string frame_id = input.header.frame_id;
-
         publishObstacles(pos_vel_s, frame_id, this_objIDs);   
         publishMarkers(pos_vel_s, frame_id, this_objIDs);
     }
@@ -288,7 +206,7 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
         m.header.frame_id = frame_id;
         m.type = visualization_msgs::Marker::CYLINDER;
         m.action = visualization_msgs::Marker::ADD;
-        m.scale.x = 2*0.25;         m.scale.y = 2*0.25;         m.scale.z = 0.05;
+        m.scale.x = 2*0.3;         m.scale.y = 2*0.3;         m.scale.z = 0.05;
         // m.scale.x=2*obstacle_radius;         m.scale.y=2*obstacle_radius;         m.scale.z=0.05;
         
         m.color.r=0.5;
@@ -325,6 +243,7 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
 
         double velocity = sqrt(pow(pos_vel_s[i][1].x, 2) + pow(pos_vel_s[i][1].y, 2));
         m.text = to_string(velocity);
+        //m.text = to_string(this_objIDs[i]);
 
         obstacleMarkers.markers.push_back(m);
     }
@@ -364,6 +283,118 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
     }
 
     marker_pub.publish(obstacleMarkers);
+}
+
+void ObstacleTrack::registerNewObstacle(int i, const geometry_msgs::PoseArray input, const int objID)
+{
+    std::vector<pcl::PointXYZI> centroids;
+    
+    pcl::PointXYZI center;
+    center.x = input.poses[i].position.x;
+    center.y = input.poses[i].position.y;
+    center.z = input.poses[i].position.z;
+    center.intensity = input.header.stamp.toSec() - time_init;
+
+    // fill every data with current input
+    for (int j = 0; j < data_length; j++)
+    {
+        centroids.push_back(center);
+    }
+    objects_centroids.push_back(centroids);
+
+    // Set IHGP hyperparameters
+    Matern32model model_x;
+    Matern32model model_y;
+    model_x.setSigma2(exp(logSigma2_x_));
+    model_x.setMagnSigma2(exp(logMagnSigma2_x_)); 
+    model_x.setLengthScale(exp(logLengthScale_x_));
+
+    model_y.setSigma2(exp(logSigma2_y_));
+    model_y.setMagnSigma2(exp(logMagnSigma2_y_)); 
+    model_y.setLengthScale(exp(logLengthScale_y_));
+
+    // GP initialization
+    GPs_x.push_back(new InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR()));
+    GPs_y.push_back(new InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR()));
+
+}
+
+void ObstacleTrack::updateObstacleQueue(int i, const geometry_msgs::PoseArray input, int index)
+{
+    // now update objects_centroids
+    pcl::PointXYZI center;
+    center.x = input.poses[i].position.x;
+    center.y = input.poses[i].position.y;
+    center.z = input.poses[i].position.z;
+    center.intensity = input.header.stamp.toSec() - time_init;
+
+    objects_centroids[index].erase(objects_centroids[index].begin());
+    objects_centroids[index].push_back(center);
+}
+
+void ObstacleTrack::fill_with_linear_interpolation(int i, const geometry_msgs::PoseArray input, int index)
+{
+    // linear interpolation for sparse data
+    pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];
+    if (input.header.stamp.toSec()  - time_init - last_centroid.intensity > 2*dt_gp) // if there is lost data
+    {
+        ROS_INFO_STREAM("obj[" << i << "] tracking loss");
+
+        double dx_total = input.poses[i].position.x - last_centroid.x; // dx between last timestamp and this timestamp
+        double dy_total = input.poses[i].position.y - last_centroid.y; // dy between last timestamp and this timestamp
+        double dz_total = input.poses[i].position.z - last_centroid.z; // dz between last timestamp and this timestamp
+        double dt_total = input.header.stamp.toSec()  - time_init - last_centroid.intensity; // dt between last timestamp and this timestamp
+        int lost_num = (int)round(dt_total/dt_gp) - 1; // # of lost data
+
+        // (lost_num) times of linear interpolation
+        for (int i=0; i < lost_num; i++)
+        {
+            pcl::PointXYZI last_center = objects_centroids[index][data_length-1];
+
+            pcl::PointXYZI center;
+            center.x = last_center.x + dx_total/lost_num;
+            center.y = last_center.y + dy_total/lost_num;
+            center.z = last_center.z + dz_total/lost_num;
+            center.intensity = last_center.intensity + dt_gp;
+
+            objects_centroids[index].erase(objects_centroids[index].begin());
+            objects_centroids[index].push_back(center);
+        }
+    }
+}
+
+std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int> this_objIDs)
+{
+    // define vector for position and velocity
+    std::vector<std::vector<pcl::PointXYZI>> pos_vel_s; // vector stack for objects pose and velocity
+    int output_size = 2*this_objIDs.size();
+    pos_vel_s.reserve(output_size);
+
+    // call IHGP
+    for (const int& n: this_objIDs)
+    {
+        // objID index for call GPs_x,y
+        int index = std::find(objIDs.begin(), objIDs.end(), n) - objIDs.begin();
+
+        std::vector<pcl::PointXYZI> pos_vel; // vector stack for one object pose and velocity
+        pos_vel.reserve(2);
+
+        pcl::PointXYZI pos = IHGP_fixed(objects_centroids[index], index, "pos"); 
+        pcl::PointXYZI vel = IHGP_fixed(objects_centroids[index], index, "vel");
+
+        // obstacle velocity bounding
+        if (vel.x > 2.0) {vel.x = 2.0;}
+        else if (vel.x < -2.0) {vel.x = -2.0;}
+
+        if (vel.y > 2.0) {vel.y = 2.0;}
+        else if (vel.y < -2.0) {vel.y = -2.0;}
+
+        pos_vel.push_back(pos);
+        pos_vel.push_back(vel); // e.g. pos_vel = [pos3, vel3]
+        pos_vel_s.push_back(pos_vel); // e.g. pos_vel_s = [[pos1, vel1], [pos3, vel3], ...]
+    }
+
+    return pos_vel_s;
 }
 
 pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable)

@@ -150,5 +150,13 @@ private:
                         std::string frame_id, \
                         std::vector<int> this_objIDs);
 
+    void registerNewObstacle(int i, const geometry_msgs::PoseArray input, const int objID);
+
+    void updateObstacleQueue(int i, const geometry_msgs::PoseArray input, int index);
+
+    void fill_with_linear_interpolation(int i, const geometry_msgs::PoseArray input, int index);
+
+    std::vector<std::vector<pcl::PointXYZI>> callIHGP(std::vector<int> this_objIDs);
+
     pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable);
 };

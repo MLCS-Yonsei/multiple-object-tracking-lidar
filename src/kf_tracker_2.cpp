@@ -63,7 +63,6 @@ void ObstacleTrack::updateParam()
 void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
 {   
     // TODO:
-    // [] set ihgp params
     // [] how to measure object's radius (before: 2 point's euc distance, now : 0.3 constant) 
     // [] change how to get dt_gp
 
@@ -108,8 +107,12 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
                 // index of objects_centroids about objID
                 int index = std::find(objIDs.begin(), objIDs.end(), objID) - objIDs.begin();
 
-                // linear interpolation for sparse data
-                fill_with_linear_interpolation(i, input, index);
+                // if there is lost data, linear interpolation for sparse data
+                pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];
+                if (input.header.stamp.toSec() - time_init - last_centroid.intensity > 2*dt_gp) 
+                {
+                    fill_with_linear_interpolation(i, input, index);
+                }
 
                 // now update objects_centroids
                 updateObstacleQueue(i, input, index);
@@ -334,33 +337,31 @@ void ObstacleTrack::updateObstacleQueue(int i, const geometry_msgs::PoseArray in
 
 void ObstacleTrack::fill_with_linear_interpolation(int i, const geometry_msgs::PoseArray input, int index)
 {
-    // linear interpolation for sparse data
-    pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];
-    if (input.header.stamp.toSec()  - time_init - last_centroid.intensity > 2*dt_gp) // if there is lost data
+    ROS_INFO_STREAM("obj[" << i << "] tracking loss");
+
+    pcl::PointXYZI last_centroid = objects_centroids[index][data_length-1];  
+
+    double dx_total = input.poses[i].position.x - last_centroid.x; // dx between last timestamp and this timestamp
+    double dy_total = input.poses[i].position.y - last_centroid.y; // dy between last timestamp and this timestamp
+    double dz_total = input.poses[i].position.z - last_centroid.z; // dz between last timestamp and this timestamp
+    double dt_total = input.header.stamp.toSec()  - time_init - last_centroid.intensity; // dt between last timestamp and this timestamp
+    int lost_num = (int)round(dt_total/dt_gp) - 1; // # of lost data
+
+    // (lost_num) times of linear interpolation
+    for (int i=0; i < lost_num; i++)
     {
-        ROS_INFO_STREAM("obj[" << i << "] tracking loss");
+        pcl::PointXYZI last_center = objects_centroids[index][data_length-1];
 
-        double dx_total = input.poses[i].position.x - last_centroid.x; // dx between last timestamp and this timestamp
-        double dy_total = input.poses[i].position.y - last_centroid.y; // dy between last timestamp and this timestamp
-        double dz_total = input.poses[i].position.z - last_centroid.z; // dz between last timestamp and this timestamp
-        double dt_total = input.header.stamp.toSec()  - time_init - last_centroid.intensity; // dt between last timestamp and this timestamp
-        int lost_num = (int)round(dt_total/dt_gp) - 1; // # of lost data
+        pcl::PointXYZI center;
+        center.x = last_center.x + dx_total/lost_num;
+        center.y = last_center.y + dy_total/lost_num;
+        center.z = last_center.z + dz_total/lost_num;
+        center.intensity = last_center.intensity + dt_gp;
 
-        // (lost_num) times of linear interpolation
-        for (int i=0; i < lost_num; i++)
-        {
-            pcl::PointXYZI last_center = objects_centroids[index][data_length-1];
-
-            pcl::PointXYZI center;
-            center.x = last_center.x + dx_total/lost_num;
-            center.y = last_center.y + dy_total/lost_num;
-            center.z = last_center.z + dz_total/lost_num;
-            center.intensity = last_center.intensity + dt_gp;
-
-            objects_centroids[index].erase(objects_centroids[index].begin());
-            objects_centroids[index].push_back(center);
-        }
+        objects_centroids[index].erase(objects_centroids[index].begin());
+        objects_centroids[index].push_back(center);
     }
+    
 }
 
 std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int> this_objIDs)

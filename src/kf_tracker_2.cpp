@@ -136,7 +136,7 @@ void ObstacleTrack::pointnetCallback(const geometry_msgs::PoseArray input)
         std::vector<std::vector<pcl::PointXYZI>> pos_vel_s;
         pos_vel_s = callIHGP(this_objIDs);
 
-        // Publish state & rviz marker
+        // Publish TEB_Obstacle msg & rviz marker
         std::string frame_id = input.header.frame_id;
         publishObstacles(pos_vel_s, frame_id, this_objIDs);   
         publishMarkers(pos_vel_s, frame_id, this_objIDs);
@@ -380,8 +380,8 @@ std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int
         std::vector<pcl::PointXYZI> pos_vel; // vector stack for one object pose and velocity
         pos_vel.reserve(2);
 
-        pcl::PointXYZI pos = IHGP_fixed(objects_centroids[index], index, "pos"); 
-        pcl::PointXYZI vel = IHGP_fixed(objects_centroids[index], index, "vel");
+        pcl::PointXYZI pos = IHGP_pos(objects_centroids[index], index);
+        pcl::PointXYZI vel = IHGP_vel(objects_centroids[index], index);
 
         // obstacle velocity bounding
         if (vel.x > 2.0) {vel.x = 2.0;}
@@ -398,7 +398,44 @@ std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int
     return pos_vel_s;
 }
 
-pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable)
+pcl::PointXYZI ObstacleTrack::IHGP_pos(std::vector<pcl::PointXYZI> centroids, int n)
+{
+    // initialize AKHA and MF vector 
+    GPs_x[n]->init_step();
+    GPs_y[n]->init_step();
+
+    // Data pre-precessing
+    // set mean as last value
+    double mean_x;
+    double mean_y;
+    int gp_data_len;
+    gp_data_len = data_length-1;
+
+    mean_x = centroids[gp_data_len].x;
+    mean_y = centroids[gp_data_len].y;
+    
+    // update IHGP queue through data
+    for (int k=0; k<=gp_data_len; k++)
+    {
+        GPs_x[n]->update(centroids[k].x - mean_x);
+        GPs_y[n]->update(centroids[k].y - mean_y);
+    }
+
+    // Pull out the marginal mean and variance estimates
+    std::vector<double> Eft_x = GPs_x[n]->getEft();
+    std::vector<double> Eft_y = GPs_y[n]->getEft();
+
+    // make return_data as PCL::PointXYZI
+    pcl::PointXYZI predicted_data;
+    predicted_data.x = Eft_x[gp_data_len] + mean_x;
+    predicted_data.y = Eft_y[gp_data_len] + mean_y;
+    predicted_data.z = 0.0;
+    predicted_data.intensity = centroids[data_length-1].intensity;
+  
+    return predicted_data;
+}
+
+pcl::PointXYZI ObstacleTrack::IHGP_vel(std::vector<pcl::PointXYZI> centroids, int n)
 {
     GPs_x[n]->init_step();
     GPs_y[n]->init_step();
@@ -409,55 +446,35 @@ pcl::PointXYZI ObstacleTrack::IHGP_fixed(std::vector<pcl::PointXYZI> centroids, 
     std::vector<double> vx_raw; 
     std::vector<double> vy_raw; 
 
+    // calculate mean 
     int gp_data_len;
-    if(variable == "vel")
+    gp_data_len = data_length-2;
+            
+    for (int k=0; k<=gp_data_len; k++)
     {
-        gp_data_len = data_length-2;
-              
-        for (int k=0; k<=gp_data_len; k++)
-        {
-            double vel = (centroids[k+1].x - centroids[k].x)/dt_gp;
-            vx_raw.push_back(vel);
-            mean_x += vel;
+        double vel = (centroids[k+1].x - centroids[k].x)/dt_gp;
+        vx_raw.push_back(vel);
+        mean_x += vel;
 
-            vel = (centroids[k+1].y - centroids[k].y)/dt_gp;
-            vy_raw.push_back(vel);
-            mean_y += vel;
-        }
-        mean_x = mean_x/(gp_data_len+1);
-        mean_y = mean_y/(gp_data_len+1);
+        vel = (centroids[k+1].y - centroids[k].y)/dt_gp;
+        vy_raw.push_back(vel);
+        mean_y += vel;
     }
-    else if(variable == "pos")
-    {
-        gp_data_len = data_length-1;
+    mean_x = mean_x/(gp_data_len+1);
+    mean_y = mean_y/(gp_data_len+1);
 
-        mean_x = centroids[gp_data_len].x;
-        mean_y = centroids[gp_data_len].y;
-    }
-    
-    // Loop through data
-    if(variable == "vel")
+    // update IHGP queue through data
+    for (int k=0; k<=gp_data_len; k++)
     {
-        for (int k=0; k<=gp_data_len; k++)
-        {
-            GPs_x[n]->update(vx_raw[k] - mean_x);
-            GPs_y[n]->update(vy_raw[k] - mean_y);
-        }
-    }
-    else if(variable == "pos")
-    {
-        for (int k=0; k<=gp_data_len; k++)
-        {
-            GPs_x[n]->update(centroids[k].x - mean_x);
-            GPs_y[n]->update(centroids[k].y - mean_y);
-        }
+        GPs_x[n]->update(vx_raw[k] - mean_x);
+        GPs_y[n]->update(vy_raw[k] - mean_y);
     }
 
     // Pull out the marginal mean and variance estimates
     std::vector<double> Eft_x = GPs_x[n]->getEft();
     std::vector<double> Eft_y = GPs_y[n]->getEft();
 
-    // make PCL::PointXYZI data
+    // make return_data as PCL::PointXYZI
     pcl::PointXYZI predicted_data;
     predicted_data.x = Eft_x[gp_data_len] + mean_x;
     predicted_data.y = Eft_y[gp_data_len] + mean_y;

@@ -158,5 +158,7 @@ private:
 
     std::vector<std::vector<pcl::PointXYZI>> callIHGP(std::vector<int> this_objIDs);
 
-    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, int n, string variable);
+    pcl::PointXYZI IHGP_pos(std::vector<pcl::PointXYZI> centroids, int n);
+
+    pcl::PointXYZI IHGP_vel(std::vector<pcl::PointXYZI> centroids, int n);
 };

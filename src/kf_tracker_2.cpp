@@ -149,7 +149,7 @@ void ObstacleTrack::publishObstacles(std::vector<std::vector<pcl::PointXYZI>> po
 
     // ObstacleArray header
     obstacle_array.header.stamp = ros::Time::now();
-    obstacle_array.header.frame_id = "map";
+    obstacle_array.header.frame_id = frame_id;
 
     for (int i=0; i<pos_vel_s.size(); i++)
     {
@@ -200,6 +200,7 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
 {
     visualization_msgs::MarkerArray obstacleMarkers;
 
+    /*
     // pose marker
     for (int i=0; i<pos_vel_s.size(); i++)
     {
@@ -222,15 +223,17 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
         m.pose.position.z = 0.0;  
 
         obstacleMarkers.markers.push_back(m);
-    }
+    } */
 
     // velocity text marker
     for (int i=0; i<pos_vel_s.size(); i++)
     {
         visualization_msgs::Marker m;
 
-        m.id = this_objIDs[i] + pos_vel_s.size();
-        m.header.frame_id = frame_id;
+        //m.id = this_objIDs[i] + pos_vel_s.size();
+        m.id = this_objIDs[i];
+
+	m.header.frame_id = frame_id;
         m.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
         m.action = visualization_msgs::Marker::ADD;
         m.scale.z = 0.25; // text size
@@ -240,24 +243,28 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
         m.color.b=1.0;
         m.color.a=1.0;
 
-        m.pose.position.x = pos_vel_s[i][0].x;
-        m.pose.position.y = pos_vel_s[i][0].y + 0.35;
+        m.pose.position.x = pos_vel_s[i][0].x - 0.3;
+        m.pose.position.y = pos_vel_s[i][0].y;
         m.pose.position.z = 0.0;  
 
-        double velocity = sqrt(pow(pos_vel_s[i][1].x, 2) + pow(pos_vel_s[i][1].y, 2));
-        m.text = to_string(velocity);
+        //double velocity = sqrt(pow(pos_vel_s[i][1].x, 2) + pow(pos_vel_s[i][1].y, 2));
+        int velocity = this_objIDs[i];
+	m.text = to_string(velocity);
         //m.text = to_string(this_objIDs[i]);
 
         obstacleMarkers.markers.push_back(m);
-    }
+    } 
 
     // velocity array marker
     for (int i=0; i<pos_vel_s.size(); i++)
     {
         visualization_msgs::Marker m;
 
-        m.id = this_objIDs[i] + 2*pos_vel_s.size();
-        m.header.frame_id = frame_id;
+        //m.id = this_objIDs[i] + 2*pos_vel_s.size();
+        m.id = this_objIDs[i] + 1*pos_vel_s.size();
+	//m.id = this_objIDs[i];
+
+	m.header.frame_id = frame_id;
         m.type = visualization_msgs::Marker::ARROW;
         m.action = visualization_msgs::Marker::ADD;
 
@@ -384,11 +391,11 @@ std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int
         pcl::PointXYZI vel = IHGP_vel(objects_centroids[index], index);
 
         // obstacle velocity bounding
-        if (vel.x > 2.0) {vel.x = 2.0;}
-        else if (vel.x < -2.0) {vel.x = -2.0;}
+        if (vel.x > 1.5) {vel.x = 1.5;}
+        else if (vel.x < -1.5) {vel.x = -1.5;}
 
-        if (vel.y > 2.0) {vel.y = 2.0;}
-        else if (vel.y < -2.0) {vel.y = -2.0;}
+        if (vel.y > 1.5) {vel.y = 1.5;}
+        else if (vel.y < -1.5) {vel.y = -1.5;}
 
         pos_vel.push_back(pos);
         pos_vel.push_back(vel); // e.g. pos_vel = [pos3, vel3]

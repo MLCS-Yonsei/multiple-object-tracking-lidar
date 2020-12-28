@@ -9,21 +9,7 @@
 const double InfiniteHorizonGP::DARE_EPS = 1e-10;
 const int InfiniteHorizonGP::DARE_MAXIT = 100;
 
-InfiniteHorizonGP::InfiniteHorizonGP()
-{
-    ;
-}
-
-InfiniteHorizonGP::~InfiniteHorizonGP()
-{
-    delete[] HdA;
-    delete[] dK;
-    delete[] dAKHA;
-    delete[] dS;
-    delete[] dm;
-}
-
-void InfiniteHorizonGP::init_InfiniteHorizonGP(const double dt, const Eigen::MatrixXd &F, const Eigen::MatrixXd &HH, const Eigen::MatrixXd &Pinf, const double &R, const std::vector<Eigen::MatrixXd> &dF, const std::vector<Eigen::MatrixXd> &dPinf, const std::vector<double> &dR)
+InfiniteHorizonGP::InfiniteHorizonGP(const double dt, const Eigen::MatrixXd &F, const Eigen::MatrixXd &HH, const Eigen::MatrixXd &Pinf, const double &R, const std::vector<Eigen::MatrixXd> &dF, const std::vector<Eigen::MatrixXd> &dPinf, const std::vector<double> &dR)
 {
     // Solve A and Q (stationary systems)
     A = (F*dt).exp();
@@ -108,7 +94,15 @@ void InfiniteHorizonGP::init_InfiniteHorizonGP(const double dt, const Eigen::Mat
     // Initialize log likelihood and its gradient
     edata = 0;
     gdata = Eigen::VectorXd::Zero(nparam);
-    
+}
+
+InfiniteHorizonGP::~InfiniteHorizonGP()
+{
+    delete[] HdA;
+    delete[] dK;
+    delete[] dAKHA;
+    delete[] dS;
+    delete[] dm;
 }
 
 void InfiniteHorizonGP::init_step()

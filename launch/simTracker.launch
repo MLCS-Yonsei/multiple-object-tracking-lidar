@@ -9,14 +9,16 @@
 
 
  <!-- Launch PCL obstacle tracker -->
-  <node pkg='kf_tracker_2' type='kf_tracker_2_node' name='kf_tracker_2' output="screen">
+  <node pkg='multiple_object_tracking_lidar' type='multiple_object_tracking_lidar_node' name='multiple_object_tracking_lidar' output="screen">
     <param name='frequency' value='10.1'/>
 
-    <param name='obstacle_num' value='1'/>
     <param name='cluster_tolerance' value='0.15'/>
     <param name='min_cluster_size' value='5'/>
     <param name='max_cluster_size' value='300'/>
     <param name='voxel_leaf_size' value='0.1'/>
+
+    <param name='static_tolerance' value='2'/> <!-- int 0~4 -->
+    <param name='id_threshold' value='0.3'/>
 
     <!-- Log scale hyper-parameter -->
     <!--param name='smooth_Sigma2' value='1.0'/>
@@ -35,7 +37,7 @@
     <param name='param_fix' value='true'/>
 
     <remap from='input_pointcloud' to='/scan_matched_points2' />
-    <remap from='map' to='/move_base/local_costmap/costmap' />
+    <!-- <remap from='map' to='/map' /> -->
   </node>
 
 </launch>

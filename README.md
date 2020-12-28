@@ -8,24 +8,24 @@ PCL based ROS package to Detect/Cluster --> Track --> Classify static and dynami
 
 ### Features:
 
+- Stable tracking (object ID, Position, Velocity) with an ensemble of Infinite Horizon Gaussian Process
 - K-D tree based point cloud processing for object feature detection from point clouds
-- Unsupervised euclidean cluster extraction (3D) or k-means clustering based on detected features and refinement using RANSAC (2D)
-- Stable tracking (object ID & data association) with an ensemble of Kalman Filters 
+- Unsupervised euclidean cluster extraction (3D)
 - Robust compared to k-means clustering with mean-flow tracking
 
 ### Usage:
 
-Follow the steps below to use this (`kf_tracker_2`) package:
+Before usage, You have to run SLAM first (**/map, /scan_matched_points2** topics)
+
+Follow the steps below to use this (`multiple_object_tracking_lidar`) package:
 ``` bash
 cd ~/catkin_ws/src
-git clone https://github.com/MLCS-Yonsei/multiple-object-tracking-lidar.git
+git clone https://github.com/MLCS-Yonsei/multiple-object-tracking-lidar.git -b gp
 cd ..
-catkin_make --only-pkg-with-deps kf_tracker_2
+catkin_make --only-pkg-with-deps multiple_object_tracking_lidar
 source ~/catkin_ws/devel/setup.bash
-roslaunch kf_tracker_2 simTracker.launch
+roslaunch multiple_object_tracking_lidar simTracker.launch
 ```
-
-If all went well, the ROS node should be up and running! As long as you have the point clouds published on to the `input_pointcloud` rostopic, you should see outputs from this node published onto the `obj_id`, `objState0_pub`, `objState1_pub`, ... topics along with the markers on `viz` topic which you can visualize using RViz.
 
 ### Supported point-cloud streams/sources:
 The input point-clouds can be from:
@@ -36,19 +36,35 @@ The input point-clouds can be from:
 
 ### TODO
 
-0. change simul map obstacle trajectory (직선으로)
-1. Euclidean Clustering Optimization (most of Runtime; 80~90ms)
-  1.1 Euclidean clustering Voxel Grid(3d) 사용
-  1.2 Euclidean clustering Projection & map masking
-2. Static/Dynamic Obstacle Filtering >> Low velocity accuracy
-  2.1 map masking or velocity filtering
-3. KF pos & vel publishing (many noise now)
-  3.1 KF transition matrix covariance 추가
-  3.2 KF 관련 변수 동적할당 (smart pointer 사용할것)
+- [x] fix private and public
+- [x] lower removeStatic() computing resource
+- [ ] map orientation bug fix
+
+- [x] PCL Clustering memorized last step
+- [x] multi obstacle ID
+
+- [x] clean up codes (callback parts)
+- [x] add comments
+- [x] update READ.md
+
+- [ ] change IHGP filter to Bilateral Filter for position
+- [ ] change multiple lidar merging method
+- [ ] solve Occlusion Problem
 
 ## Citing
 
 If you use the code or snippets from this repository in your work, please cite:
+
+```bibtex
+@software{solin2018infinite,
+  title={Infinite-horizon Gaussian processes},
+  author={Solin, Arno and Hensman, James and Turner, Richard E},
+  journal={Advances in Neural Information Processing Systems},
+  volume={31},
+  pages={3486--3495},
+  year={2018}
+}
+```
 
 ```bibtex
 @software{praveen_palanisamy_2019_3559187,
@@ -63,9 +79,3 @@ If you use the code or snippets from this repository in your work, please cite:
   url          = {https://doi.org/10.5281/zenodo.3559186}
 }
 ```
-
-### Wiki
-
-[Checkout the Wiki pages](https://github.com/praveen-palanisamy/multiple-object-tracking-lidar/wiki)
-
-1. [Multiple-object tracking from pointclouds using a Velodyne VLP-16](https://github.com/praveen-palanisamy/multiple-object-tracking-lidar/wiki/velodyne_vlp16)

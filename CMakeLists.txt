@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(kf_tracker_2)
+project(multiple_object_tracking_lidar)
 
 set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
 
@@ -11,15 +11,6 @@ find_package(catkin REQUIRED
     costmap_converter
     visualization_msgs
 )
-
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs
-#   sensor_msgs
-#   geometry_msgs
-#   nav_msgs
-#   visualization_msgs
-# )
 
 catkin_package(
   # INCLUDE_DIRS include

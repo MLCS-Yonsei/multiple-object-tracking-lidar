@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>kf_tracker_2</name>
+  <name>multiple_object_tracking_lidar</name>
   <version>0.0.0</version>
   <description>ROS package for Multiple objects detection, tracking and classification from LIDAR scans/point-clouds revised version</description>
   <maintainer email="mlcstacco@todo.todo">mlcstacco</maintainer>

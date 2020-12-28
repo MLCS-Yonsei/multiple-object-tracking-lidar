@@ -9,6 +9,8 @@
 #include <Eigen/Dense>
 #include <Eigen/Core>
 #include <vector>
+#include <sstream>
+#include <iomanip>
 
 // ros msgs
 #include <ros/ros.h>
@@ -34,12 +36,6 @@
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/TwistWithCovariance.h>
-
-//tf msgs
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 // pcl 
 #include <pcl_conversions/pcl_conversions.h>
@@ -86,107 +82,105 @@ public:
 
     bool initialize();
 
-    void updateParam();
+    void spinNode();
 
     ros::Publisher obstacle_pub; // obstacle pos&vel
     ros::Publisher marker_pub; // obstacle pose visualization 
 
-    ros::Publisher pc1;
+    // pointcloud publisher for debugging
+    ros::Publisher pc1; 
     ros::Publisher pc2;
     ros::Publisher pc3;
 
     ros::Subscriber map_sub; // Occupied grid map
     ros::Subscriber input_sub; // input Pointclouds
+
+private:   
+    // clustering
+    double time_init;
+    bool firstFrame = true;
+    std::vector<int> objIDs; // obj lists
+    std::vector<std::vector<pcl::PointXYZI>> stack_obj; // t~(t-10) cluster Centers stack
+
+    // IHGP state space model
+    float dt_gp; 
+    std::vector<InfiniteHorizonGP*> GPs_x;
+    std::vector<InfiniteHorizonGP*> GPs_y;
+
+    // map data
+    Eigen::MatrixXd map_copy;
+    bool map_init = false;
+    float map_resolution;
+    float map_pos_x;
+    float map_pos_y;
     
+    // Configureation (ROS parameter)
+    float frequency; // node frequency
+
+    float ClusterTolerance; // (m) default 0.3
+    int MinClusterSize; 
+    int MaxClusterSize; 
+    float VoxelLeafSize;
+    
+    int tolarance; // tolarance for removing pointcloud on static obstacles
+    float id_thershold;
+ 
+    double logSigma2_x;
+    double logMagnSigma2_x;
+    double logLengthScale_x;
+
+    double logSigma2_y;
+    double logMagnSigma2_y;
+    double logLengthScale_y;
+
+    int data_length=10;
+    bool param_fix;
+
     // RUNTIME DEBUG
     clock_t s_1, s_2, s_3, s_4, s_5, s_6, s_7;
     clock_t e_1, e_2, e_3, e_4, e_5, e_6, e_7;
-    
-    int data_length=10;
-    std::vector<pcl::PointXYZI> centroids; // t~(t-10) cluster Centers stack
-    std::vector<int> objID;
-    nav_msgs::OccupancyGrid map_copy;
 
-    // IHGP state space model
-    Matern32model model_x;
-    Matern32model model_y;
-
-    // IHGP
-    InfiniteHorizonGP gp_x;
-    InfiniteHorizonGP gp_y;
-
-    bool param_fix;
-    float dt_gp;    
-    double logSigma2_x_;
-    double logMagnSigma2_x_;
-    double logLengthScale_x_;
-    double logSigma2_y_;
-    double logMagnSigma2_y_;
-    double logLengthScale_y_;
-
-    double vel_x=999;
-    double vel_y=999;
-    double mean_x=0;
-    double mean_y=0;
-    std::vector<double> Eft_x;
-    std::vector<double> Eft_y;
-    std::vector<double> logLengthScales_x;
-    std::vector<double> logLengthScales_y;
-    std::vector<double> logMagnSigma2s_x;
-    std::vector<double> logMagnSigma2s_y;
-    
-    // configuration
-    int obstacle_num_;
-    float ClusterTolerance_; // (m) default 0.3
-    int MinClusterSize_; // default 10
-    int MaxClusterSize_; // default 600
-    float VoxelLeafSize_;
-    bool firstFrame = true;
-    bool t_init = false;
-    bool map = false;
-    double time_init;
-
-    //tf msgs
-    tf::TransformBroadcaster tf_broadcast;
-    tf::Transform transform;
-    tf::TransformListener tf_listener;
-    tf::StampedTransform stamped_transform;
-
-    //radius
-    float obstacle_radius;
-    
-private:
 
     ros::NodeHandle nh_;
 
-    void spinNode();
+    void updateParam();
 
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input);
 
     void mapCallback(const nav_msgs::OccupancyGrid& map_msg);
 
-    void publishObstacles(pcl::PointXYZI predicted_centroid, \
-        pcl::PointXYZI predicted_velocity,\
-        const sensor_msgs::PointCloud2ConstPtr& input);
+    void publishObstacles(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, \
+                        std::string frame_id, \
+                        std::vector<int> this_objIDs);
 
-    void publishMarkers(pcl::PointXYZI predicted_centroid);
+    void publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, \
+                        std::string frame_id, \
+                        std::vector<int> this_objIDs);
 
-    void publishObjID();
+    std::vector<pcl::PointXYZI> clusterPointCloud(const sensor_msgs::PointCloud2ConstPtr& input);
 
-    pcl::PointCloud<pcl::PointXYZ> removeStatic( \
-        pcl::PointCloud<pcl::PointXYZ> input_cloud, \
-        pcl::PointCloud<pcl::PointXYZ> cloud_pre_process);
+    void registerNewObstacle(const int i, pcl::PointXYZI centroid);
 
-    pcl::PointXYZI getCentroid( \
+    void updateObstacleQueue(const int i, pcl::PointXYZI centroid);
+
+    void fill_with_linear_interpolation(const int i, pcl::PointXYZI centroid);
+
+    float euc_dist(Vector3d P1, Vector3d P2);
+
+    std::vector<std::vector<pcl::PointXYZI>> callIHGP(std::vector<int> this_objIDs);
+
+    pcl::PointCloud<pcl::PointXYZ> removeStatic(pcl::PointCloud<pcl::PointXYZ> input_cloud);
+
+    std::vector<pcl::PointXYZI> getCentroid( \
         std::vector<pcl::PointIndices> cluster_indices, \
         const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
         const sensor_msgs::PointCloud2 input);
 
-    pcl::PointXYZI IHGP_fixed(std::vector<pcl::PointXYZI> centroids, string variable);
+    pcl::PointXYZI BilateralFilter_pos(std::vector<pcl::PointXYZI> centroids, int n);
 
-    pcl::PointXYZI IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids);
+    pcl::PointXYZI IHGP_fixed_pos(std::vector<pcl::PointXYZI> centroids, int n);
 
-    float euc_dist(Vector3d P1, Vector3d P2);
+    pcl::PointXYZI IHGP_fixed_vel(std::vector<pcl::PointXYZI> centroids, int n);
 
-    pcl::PointXYZI getRelativeCentroid(pcl::PointXYZI centroid);
+    pcl::PointXYZI IHGP_nonfixed(std::vector<pcl::PointXYZI> centroids, int n);
 };

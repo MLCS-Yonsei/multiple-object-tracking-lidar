@@ -1,18 +1,15 @@
 #include <ros/ros.h>
-#include "kf_tracker_2/kf_tracker_2.h"
+#include "multiple_object_tracking_lidar/multiple_object_tracking_lidar.h"
 
 int main(int argc, char **argv)
 {
   try
   {
     // ROS init
-    ros::init (argc,argv,"kf_tracker_2");
+    ros::init (argc,argv,"multiple_object_tracking_lidar");
     ros::NodeHandle nh;
     ObstacleTrack obstacles;
-    
-    float frequency;
-    nh.param<float>("/kf_tracker_2/frequency", frequency, 10.0);
-
+  
     if(!obstacles.initialize())
     {
       ROS_ERROR_STREAM_NAMED("FAILED TO INITIALIZE %s", ros::this_node::getName().c_str());
@@ -21,15 +18,14 @@ int main(int argc, char **argv)
     else{
       ROS_INFO_STREAM_NAMED("%s INITIALIZED SUCCESSFULLY!", ros::this_node::getName().c_str());
       while (nh.ok()) {
-        ros::Duration(1/frequency).sleep(); // lidar frequency에 동기화 
-        ros::spinOnce();
+        obstacles.spinNode();
       }
     }
   }
 
   catch (ros::Exception& e)
   {
-    ROS_ERROR("kf_tracker_2_node: Error occured: %s", e.what());
+    ROS_ERROR("multiple_object_tracking_lidar_node: Error occured: %s", e.what());
     exit(1);
   }  
 

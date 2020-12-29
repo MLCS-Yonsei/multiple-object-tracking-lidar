@@ -18,7 +18,7 @@
     <param name='voxel_leaf_size' value='0.1'/>
 
     <param name='static_tolerance' value='2'/> <!-- int 0~4 -->
-    <param name='id_threshold' value='0.3'/>
+    <param name='id_threshold' value='0.4'/>
 
     <!-- Log scale hyper-parameter -->
     <!--param name='smooth_Sigma2' value='1.0'/>

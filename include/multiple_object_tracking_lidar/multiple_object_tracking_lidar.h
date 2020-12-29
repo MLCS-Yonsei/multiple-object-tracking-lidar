@@ -11,6 +11,7 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <cstdlib> 
 
 // ros msgs
 #include <ros/ros.h>
@@ -23,6 +24,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <nav_msgs/MapMetaData.h>
+#include <std_msgs/ColorRGBA.h>
 
 // obstacle ros msgs
 #include <costmap_converter/ObstacleArrayMsg.h>
@@ -101,8 +103,11 @@ private:
     bool firstFrame = true;
     std::vector<int> objIDs; // obj lists
     std::vector<std::vector<pcl::PointXYZI>> stack_obj; // t~(t-10) cluster Centers stack
+    std::vector<std_msgs::ColorRGBA> colorset; // rviz msg colorset
 
     // IHGP state space model
+    int next_obj_num = 0;
+    int spin_counter = 0;
     float dt_gp; 
     std::vector<InfiniteHorizonGP*> GPs_x;
     std::vector<InfiniteHorizonGP*> GPs_y;
@@ -157,9 +162,9 @@ private:
 
     std::vector<pcl::PointXYZI> clusterPointCloud(const sensor_msgs::PointCloud2ConstPtr& input);
 
-    void registerNewObstacle(const int i, pcl::PointXYZI centroid);
+    void registerNewObstacle(pcl::PointXYZI centroid);
 
-    void unregisterOldObstacle();
+    void unregisterOldObstacle(double now);
 
     void updateObstacleQueue(const int i, pcl::PointXYZI centroid);
 
@@ -178,7 +183,7 @@ private:
         const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
         const sensor_msgs::PointCloud2 input);
 
-    pcl::PointXYZI BilateralFilter_pos(std::vector<pcl::PointXYZI> centroids, int n);
+    pcl::PointXYZI LPF_pos(std::vector<pcl::PointXYZI> centroids, int n);
 
     pcl::PointXYZI IHGP_fixed_pos(std::vector<pcl::PointXYZI> centroids, int n);
 

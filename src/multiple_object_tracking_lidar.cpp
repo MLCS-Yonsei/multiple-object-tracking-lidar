@@ -12,8 +12,10 @@
 // - [x] add comments
 // - [x] update READ.md
 
-// - [ ] add unregisterOldObstacle() method
-// - [ ] change IHGP filter to Bilateral Filter for position
+// - [x] add unregisterOldObstacle() method
+// - [ ] change IHGP filter to LPF for position
+
+// - [ ] test obstacle edge extraction (realworld Velodyne)
 // - [ ] change multiple lidar merging method
 // - [ ] solve Occlusion Problem
 
@@ -68,7 +70,8 @@ bool ObstacleTrack::initialize()
         input_sub = nh_.subscribe("input_pointcloud", 1, &ObstacleTrack::cloudCallback, this);
 
         time_init = ros::Time::now().toSec(); // for real world test
-        
+        std::srand(5323); // rviz colorset random seed
+
         ROS_INFO_STREAM("ObstacleTrack Initialized");
         return true;
     }
@@ -146,7 +149,7 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         {
             for (int i=0; i<clusterCentroids.size(); ++i)
             {
-                registerNewObstacle(i, clusterCentroids[i]);         
+                registerNewObstacle(clusterCentroids[i]);         
             }   
         }   
 
@@ -171,39 +174,44 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         for (const auto& obj: clusterCentroids)
         {
             bool registered = false;
-            int num = 0;
+            int update_index = 0;
+            int objID = 0;
 
-            for (int i=0; i<objIDs.size(); ++i)
+            std::vector<int>::iterator it;
+            for (it=objIDs.begin(); it<objIDs.end(); ++it)
             {
+                int index = std::distance(objIDs.begin(), it);
+
                 // compare new cluster with final poses of registered objs
                 Eigen::Vector3d P_now; // Position (now)
                 Eigen::Vector3d P_last; // Position (last observation)
                 P_now << obj.x, obj.y, 0;
-                P_last << stack_obj[i][data_length-1].x, stack_obj[i][data_length-1].y, 0;
+                P_last << stack_obj[index][data_length-1].x, stack_obj[index][data_length-1].y, 0;
 
                 if (euc_dist(P_now, P_last) < id_thershold)
                 {
                     // if there is lost data, linear interpolation for sparse data
-                    if (obj.intensity - stack_obj[i][data_length-1].intensity > 3*dt_gp)
+                    if (obj.intensity - stack_obj[index][data_length-1].intensity > 3*dt_gp)
                     {
-                        fill_with_linear_interpolation(i, obj);
+                        fill_with_linear_interpolation(index, obj);
                     }
 
                     registered = true;
-                    num = i;
+                    update_index = index;
+                    objID = *it;
                     break;
                 }
             }
 
             if (registered) // if already registered object, update data
             {
-                updateObstacleQueue(num, obj);
-                this_objIDs.push_back(num);
+                updateObstacleQueue(update_index, obj);
+                this_objIDs.push_back(objID);
             }
             else // if new object detects, register new GP model
             {
-                this_objIDs.push_back(objIDs.size());
-                registerNewObstacle(objIDs.size(), obj);
+                this_objIDs.push_back(next_obj_num);
+                registerNewObstacle(obj);
             }            
         }
 
@@ -215,6 +223,9 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         std::string frame_id = input->header.frame_id;
         publishObstacles(pos_vel_s, frame_id, this_objIDs);   
         publishMarkers(pos_vel_s, frame_id, this_objIDs);
+
+        // unregister old unseen obstacles 
+        unregisterOldObstacle(input->header.stamp.toSec() - time_init);
     } 
 } 
 
@@ -285,57 +296,58 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
     visualization_msgs::MarkerArray obstacleMarkers;
 
     // pose marker
+    visualization_msgs::Marker m;
+    m.id = 0;
+    m.header.frame_id = frame_id;
+    m.type = visualization_msgs::Marker::POINTS;
+    m.action = visualization_msgs::Marker::ADD;
+    m.scale.x = 2*0.25;         m.scale.y = 2*0.25;    
     for (int i=0; i<pos_vel_s.size(); i++)
-    {
-        visualization_msgs::Marker m;
-        m.id = this_objIDs[i];
-        m.header.frame_id = frame_id;
-        m.type = visualization_msgs::Marker::CYLINDER;
-        m.action = visualization_msgs::Marker::ADD;
-        m.scale.x = 2*0.3;         m.scale.y = 2*0.3;         m.scale.z = 0.05;
-        // m.scale.x=2*obstacle_radius;         m.scale.y=2*obstacle_radius;         m.scale.z=0.05;
-        
-        m.color.r=0.8;
-        m.color.g=0.0;
-        m.color.b=0.0;
-        m.color.a=0.7;
-        m.pose.position.x = pos_vel_s[i][0].x;
-        m.pose.position.y = pos_vel_s[i][0].y;
-        m.pose.position.z = 0.0;  
-        m.pose.orientation.x = 0;
-        m.pose.orientation.y = 0;
-        m.pose.orientation.z = 0;
-        m.pose.orientation.w = 1;
-        obstacleMarkers.markers.push_back(m);
-    } 
+    {   
+        auto iter = std::find(objIDs.begin(), objIDs.end(), this_objIDs[i]);
+        int index = std::distance(objIDs.begin(), iter);
+        std_msgs::ColorRGBA color;
+        color.r = colorset[index].r;
+        color.g = colorset[index].g;
+        color.b = colorset[index].b;
+        color.a = colorset[index].a;
+
+        geometry_msgs::Point p;
+        p.x = pos_vel_s[i][0].x;
+        p.y = pos_vel_s[i][0].y;
+        p.z = 0;
+
+        m.colors.push_back(color);
+        m.points.push_back(p);
+    }
+    obstacleMarkers.markers.push_back(m);
 
     // velocity text marker
     for (int i=0; i<pos_vel_s.size(); i++)
     {
         visualization_msgs::Marker m;
 
-        m.id = this_objIDs[i] + pos_vel_s.size();
+        m.id = 2*this_objIDs[i]+1;
         // m.id = this_objIDs[i];
 
         m.header.frame_id = frame_id;
         m.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
         m.action = visualization_msgs::Marker::ADD;
-        m.scale.z = 0.2; // text size
+        m.scale.z = 0.22; // text size
         
         m.color.r=1.0;
         m.color.g=1.0;
         m.color.b=1.0;
         m.color.a=1.0;
 
-        m.pose.position.x = pos_vel_s[i][0].x + 0.4;
+        m.pose.position.x = pos_vel_s[i][0].x;
         m.pose.position.y = pos_vel_s[i][0].y;
         m.pose.position.z = 0.0;  
 
-        int ID = this_objIDs[i];
         float velocity = round(sqrt(pow(pos_vel_s[i][1].x, 2) + pow(pos_vel_s[i][1].y, 2))*100) / 100;
         std::ostringstream velocity_3f;
         velocity_3f << std::setprecision(2) << velocity;
-        std::string text = to_string(ID) + " | " + velocity_3f.str() + " (m/s)";
+        std::string text = velocity_3f.str();
         m.text = text; 
 
         obstacleMarkers.markers.push_back(m);
@@ -445,10 +457,11 @@ std::vector<pcl::PointXYZI> ObstacleTrack::clusterPointCloud(const sensor_msgs::
     return clusterCentroids;
 }
 
-void ObstacleTrack::registerNewObstacle(const int i, pcl::PointXYZI centroid)
+void ObstacleTrack::registerNewObstacle(pcl::PointXYZI centroid)
 {
     // register objID list
-    objIDs.push_back(i);
+    objIDs.push_back(next_obj_num);
+    next_obj_num += 1;
 
     // fill every data with current input
     std::vector<pcl::PointXYZI> centroids;
@@ -473,11 +486,54 @@ void ObstacleTrack::registerNewObstacle(const int i, pcl::PointXYZI centroid)
     GPs_x.push_back(new InfiniteHorizonGP(dt_gp,model_x.getF(),model_x.getH(),model_x.getPinf(),model_x.getR(),model_x.getdF(),model_x.getdPinf(),model_x.getdR()));
     GPs_y.push_back(new InfiniteHorizonGP(dt_gp,model_y.getF(),model_y.getH(),model_y.getPinf(),model_y.getR(),model_y.getdF(),model_y.getdPinf(),model_y.getdR()));
 
+    // Set rviz msg color
+    std_msgs::ColorRGBA color;
+    color.r = (float)std::rand()/(float)RAND_MAX;
+    color.g = (float)std::rand()/(float)RAND_MAX;
+    color.b = (float)std::rand()/(float)RAND_MAX;
+    color.a = 0.8;
+    colorset.push_back(color);
 }
 
-void ObstacleTrack::unregisterOldObstacle()
+void ObstacleTrack::unregisterOldObstacle(double now)
 {
-    ;
+    spin_counter += 1;
+
+    // remove old obstacles every period (sec)
+    double period = 5; // 5 sec
+    if (spin_counter > period * frequency)
+    {
+        std::vector<int>::iterator it_objID = objIDs.begin();
+        std::vector<std::vector<pcl::PointXYZI>>::iterator it_stack = stack_obj.begin();
+        std::vector<InfiniteHorizonGP*>::iterator it_GPx = GPs_x.begin();
+        std::vector<InfiniteHorizonGP*>::iterator it_GPy = GPs_y.begin();
+        std::vector<std_msgs::ColorRGBA>::iterator it_color = colorset.begin();
+
+        for (it_objID=objIDs.begin(); it_objID<objIDs.end();)
+        {
+            int index = std::distance(objIDs.begin(), it_objID);
+
+            // if obj be unseen for period, remove
+            if (now - stack_obj[index][data_length-1].intensity > period)
+            {
+                it_objID = objIDs.erase(it_objID); // remove objID 
+                it_stack = stack_obj.erase(it_stack); // remove stack_obj
+                it_GPx = GPs_x.erase(it_GPx); // remove GPs_x 
+                it_GPy = GPs_y.erase(it_GPy); // remove GPs_y 
+                it_color = colorset.erase(it_color);
+            }
+            else
+            {
+                it_objID++;
+                it_stack++;
+                it_GPx++;
+                it_GPy++;
+                it_color++;
+            }
+        }
+        
+        spin_counter = 0;
+    }
 }
 
 void ObstacleTrack::updateObstacleQueue(const int i, pcl::PointXYZI centroid)
@@ -526,13 +582,13 @@ std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int
     for (const int& n: this_objIDs)
     {
         // objID index for call GPs_x,y
-        int index = std::find(objIDs.begin(), objIDs.end(), n) - objIDs.begin();
-        // int index = n;
+        auto iter = std::find(objIDs.begin(), objIDs.end(), n);
+        int index = std::distance(objIDs.begin(), iter);
 
         std::vector<pcl::PointXYZI> pos_vel; // vector stack for one object pose and velocity
         pos_vel.reserve(2);
 
-        pcl::PointXYZI pos = BilateralFilter_pos(stack_obj[index], index);
+        pcl::PointXYZI pos = LPF_pos(stack_obj[index], index);
         // pcl::PointXYZI pos = IHGP_fixed_pos(stack_obj[index], index);
         pcl::PointXYZI vel = IHGP_fixed_vel(stack_obj[index], index);
 
@@ -718,7 +774,7 @@ std::vector<pcl::PointXYZI> ObstacleTrack::getCentroid(std::vector<pcl::PointInd
     return clusterCentroids;
 } 
 
-pcl::PointXYZI ObstacleTrack::BilateralFilter_pos(std::vector<pcl::PointXYZI> centroids, int n)
+pcl::PointXYZI ObstacleTrack::LPF_pos(std::vector<pcl::PointXYZI> centroids, int n)
 {
     // TODO:
     // - [ ] change IHGP filter to Bilateral Filter for position

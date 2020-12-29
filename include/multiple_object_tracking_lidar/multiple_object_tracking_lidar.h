@@ -108,11 +108,9 @@ private:
     std::vector<InfiniteHorizonGP*> GPs_y;
 
     // map data
+    nav_msgs::MapMetaData map_info;
     Eigen::MatrixXd map_copy;
     bool map_init = false;
-    float map_resolution;
-    float map_pos_x;
-    float map_pos_y;
     
     // Configureation (ROS parameter)
     float frequency; // node frequency
@@ -161,9 +159,13 @@ private:
 
     void registerNewObstacle(const int i, pcl::PointXYZI centroid);
 
+    void unregisterOldObstacle();
+
     void updateObstacleQueue(const int i, pcl::PointXYZI centroid);
 
     void fill_with_linear_interpolation(const int i, pcl::PointXYZI centroid);
+
+    float quaternion2eularYaw(geometry_msgs::Quaternion map_angle);
 
     float euc_dist(Vector3d P1, Vector3d P2);
 

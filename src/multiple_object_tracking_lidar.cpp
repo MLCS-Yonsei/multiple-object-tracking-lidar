@@ -3,7 +3,7 @@
 //TODO: 
 // - [x] fix private and public
 // - [x] lower removeStatic() computing resource
-// - [ ] map orientation bug fix
+// - [x] map orientation bug fix
 
 // - [x] PCL Clustering memorized last step
 // - [x] multi obstacle ID
@@ -12,6 +12,7 @@
 // - [x] add comments
 // - [x] update READ.md
 
+// - [ ] add unregisterOldObstacle() method
 // - [ ] change IHGP filter to Bilateral Filter for position
 // - [ ] change multiple lidar merging method
 // - [ ] solve Occlusion Problem
@@ -220,18 +221,14 @@ void ObstacleTrack::cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 void ObstacleTrack::mapCallback(const nav_msgs::OccupancyGrid& map_msg)
 {
     // map information
-    int height = map_msg.info.height;
-    int width = map_msg.info.width;
-    map_resolution = map_msg.info.resolution;
-    map_pos_x = map_msg.info.origin.position.x;
-    map_pos_y = map_msg.info.origin.position.y;
+    map_info = map_msg.info;
     
     // update map data to Eigen::MatrixXd form
-    map_copy.resize(height, width);
+    map_copy.resize(map_info.height, map_info.width);
     for (int i=0; i<map_msg.data.size(); i++) 
     {
-        int row = i/width;
-        int column = i%width;
+        int row = i/map_info.width;
+        int column = i%map_info.width;
 
         map_copy(row, column) = map_msg.data[i];
     }
@@ -478,6 +475,11 @@ void ObstacleTrack::registerNewObstacle(const int i, pcl::PointXYZI centroid)
 
 }
 
+void ObstacleTrack::unregisterOldObstacle()
+{
+    ;
+}
+
 void ObstacleTrack::updateObstacleQueue(const int i, pcl::PointXYZI centroid)
 {
     // now update objects_centroids
@@ -565,9 +567,12 @@ pcl::PointCloud<pcl::PointXYZ> ObstacleTrack::removeStatic(pcl::PointCloud<pcl::
     {
         bool endflag = 0;
 
-        // get matrix index
-        int col = (point.x - map_pos_x)/map_resolution;
-        int row = (point.y - map_pos_y)/map_resolution;
+        // get map index (column, row)
+        float x_map = point.x - map_info.origin.position.x;
+        float y_map = point.y - map_info.origin.position.y;
+        float theta = quaternion2eularYaw(map_info.origin.orientation);
+        int col = (cos(-theta)*x_map - sin(-theta)*y_map)/map_info.resolution;
+        int row = (sin(-theta)*x_map + cos(-theta)*y_map)/map_info.resolution;
 
         // check neighborhood grid cell whether is occupied
         for (int i=-tolarance; i<=tolarance; ++i)
@@ -897,6 +902,18 @@ pcl::PointXYZI ObstacleTrack::IHGP_nonfixed(std::vector<pcl::PointXYZI> centroid
     
     // return predicted_centroid;
     ;
+}
+
+float ObstacleTrack::quaternion2eularYaw(geometry_msgs::Quaternion q)
+{
+    double yaw_angle;
+
+    // yaw (z-axis rotation)
+    double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+    double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+    yaw_angle = std::atan2(siny_cosp, cosy_cosp);
+
+    return yaw_angle;
 }
 
 float ObstacleTrack::euc_dist(Vector3d P1, Vector3d P2)

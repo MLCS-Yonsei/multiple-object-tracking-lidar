@@ -31,6 +31,7 @@
 #include <costmap_converter/ObstacleMsg.h>
 #include <geometry_msgs/Polygon.h>
 #include <geometry_msgs/Point32.h>
+#include <sensor_msgs/PointCloud.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Int64.h>
@@ -88,6 +89,7 @@ public:
 
     ros::Publisher obstacle_pub; // obstacle pos&vel
     ros::Publisher marker_pub; // obstacle pose visualization 
+    ros::Publisher pose_pub;
 
     // pointcloud publisher for debugging
     ros::Publisher pc1; 
@@ -127,7 +129,8 @@ private:
     
     int tolarance; // tolarance for removing pointcloud on static obstacles
     float id_thershold;
- 
+
+    float lpf_tau; 
     double logSigma2_x;
     double logMagnSigma2_x;
     double logLengthScale_x;
@@ -183,7 +186,7 @@ private:
         const pcl::PointCloud<pcl::PointXYZ> cloud_filtered, \
         const sensor_msgs::PointCloud2 input);
 
-    pcl::PointXYZI LPF_pos(std::vector<pcl::PointXYZI> centroids, int n);
+    pcl::PointXYZI LPF_pos(std::vector<pcl::PointXYZI> centroids);
 
     pcl::PointXYZI IHGP_fixed_pos(std::vector<pcl::PointXYZI> centroids, int n);
 

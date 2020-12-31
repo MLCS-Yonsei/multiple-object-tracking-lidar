@@ -13,7 +13,7 @@
 // - [x] update READ.md
 
 // - [x] add unregisterOldObstacle() method
-// - [ ] change IHGP filter to LPF for position
+// - [x] change IHGP filter to LPF for position
 
 // - [ ] test obstacle edge extraction (realworld Velodyne)
 // - [ ] change multiple lidar merging method
@@ -36,6 +36,7 @@ ObstacleTrack::~ObstacleTrack()
     nh_.deleteParam("static_tolarance");
     nh_.deleteParam("id_threshold");
 
+    nh_.deleteParam("lpf_tau");
     nh_.deleteParam("logSigma2_x");
     nh_.deleteParam("logMagnSigma2_x");
     nh_.deleteParam("logLengthScale_x");
@@ -59,11 +60,12 @@ bool ObstacleTrack::initialize()
         // Create a ROS Publishers 
         obstacle_pub = nh_.advertise<costmap_converter::ObstacleArrayMsg> ("move_base/TebLocalPlannerROS/obstacles", 10); // the state of objects (pos and vel)
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("tracker_viz", 10); // rviz visualization
+        pose_pub = nh_.advertise<sensor_msgs::PointCloud>("pose_marker", 10);
 
         // pointcloud publisher for debugging
-        pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",10);
-        pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",10);
-        pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",10);
+        // pc1 = nh_.advertise<sensor_msgs::PointCloud2>("pc1",10);
+        // pc2 = nh_.advertise<sensor_msgs::PointCloud2>("pc2",10);
+        // pc3 = nh_.advertise<sensor_msgs::PointCloud2>("pc3",10);
 
         // Initialize Subscriber for input Pointcloud2 
         map_sub = nh_.subscribe("/map", 1, &ObstacleTrack::mapCallback, this);
@@ -99,6 +101,7 @@ void ObstacleTrack::updateParam()
     // nh_.param<double>("/multiple_object_tracking_lidar/smooth_MagnSigma2", smooth_MagnSigma2, 1.0);
     // nh_.param<double>("/multiple_object_tracking_lidar/smooth_LengthScale", smooth_LengthScale, 1.1);
 
+    nh_.param<float>("/multiple_object_tracking_lidar/lpf_tau", lpf_tau, 0.01);
     nh_.param<double>("/multiple_object_tracking_lidar/logSigma2_x", logSigma2_x, -5.5); // measurement noise
     nh_.param<double>("/multiple_object_tracking_lidar/logMagnSigma2_x", logMagnSigma2_x, -3.5);
     nh_.param<double>("/multiple_object_tracking_lidar/logLengthScale_x", logLengthScale_x, 0.75);
@@ -293,34 +296,57 @@ void ObstacleTrack::publishObstacles(std::vector<std::vector<pcl::PointXYZI>> po
 
 void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_vel_s, std::string frame_id, std::vector<int> this_objIDs)
 {
-    visualization_msgs::MarkerArray obstacleMarkers;
-
     // pose marker
-    visualization_msgs::Marker m;
-    m.id = 0;
-    m.header.frame_id = frame_id;
-    m.type = visualization_msgs::Marker::POINTS;
-    m.action = visualization_msgs::Marker::ADD;
-    m.scale.x = 2*0.25;         m.scale.y = 2*0.25;    
+    sensor_msgs::PointCloud pose_msg;
+    pose_msg.header.frame_id = frame_id;
+
+    sensor_msgs::ChannelFloat32 color_info;
+    color_info.name = "intensity";
+
     for (int i=0; i<pos_vel_s.size(); i++)
     {   
         auto iter = std::find(objIDs.begin(), objIDs.end(), this_objIDs[i]);
         int index = std::distance(objIDs.begin(), iter);
-        std_msgs::ColorRGBA color;
-        color.r = colorset[index].r;
-        color.g = colorset[index].g;
-        color.b = colorset[index].b;
-        color.a = colorset[index].a;
+        
+        geometry_msgs::Point32 point;
+        point.x = pos_vel_s[i][0].x;
+        point.y = pos_vel_s[i][0].y;
+        point.z = 0;
+        pose_msg.points.push_back(point);
 
-        geometry_msgs::Point p;
-        p.x = pos_vel_s[i][0].x;
-        p.y = pos_vel_s[i][0].y;
-        p.z = 0;
-
-        m.colors.push_back(color);
-        m.points.push_back(p);
+        float color = 255 * colorset[index].g;
+        color_info.values.push_back(color);
     }
-    obstacleMarkers.markers.push_back(m);
+    pose_msg.channels.push_back(color_info);
+    pose_pub.publish(pose_msg);
+
+    visualization_msgs::MarkerArray obstacleMarkers;
+    // // pose marker
+    // visualization_msgs::Marker m;
+    // m.id = 0;
+    // m.header.frame_id = frame_id;
+    // m.type = visualization_msgs::Marker::POINTS;
+    // m.action = visualization_msgs::Marker::ADD;
+    // m.scale.x = 2*0.25;         m.scale.y = 2*0.25;    
+    // for (int i=0; i<pos_vel_s.size(); i++)
+    // {   
+    //     auto iter = std::find(objIDs.begin(), objIDs.end(), this_objIDs[i]);
+    //     int index = std::distance(objIDs.begin(), iter);
+    //     std_msgs::ColorRGBA color;
+    //     color.r = colorset[index].r;
+    //     color.g = colorset[index].g;
+    //     color.b = colorset[index].b;
+    //     color.a = colorset[index].a;
+
+    //     geometry_msgs::Point p;
+    //     p.x = pos_vel_s[i][0].x;
+    //     p.y = pos_vel_s[i][0].y;
+    //     p.z = 0;
+
+    //     m.colors.push_back(color);
+    //     m.points.push_back(p);
+    // }
+    // obstacleMarkers.markers.push_back(m);
 
     // velocity text marker
     for (int i=0; i<pos_vel_s.size(); i++)
@@ -588,7 +614,7 @@ std::vector<std::vector<pcl::PointXYZI>> ObstacleTrack::callIHGP(std::vector<int
         std::vector<pcl::PointXYZI> pos_vel; // vector stack for one object pose and velocity
         pos_vel.reserve(2);
 
-        pcl::PointXYZI pos = LPF_pos(stack_obj[index], index);
+        pcl::PointXYZI pos = LPF_pos(stack_obj[index]);
         // pcl::PointXYZI pos = IHGP_fixed_pos(stack_obj[index], index);
         pcl::PointXYZI vel = IHGP_fixed_vel(stack_obj[index], index);
 
@@ -774,12 +800,15 @@ std::vector<pcl::PointXYZI> ObstacleTrack::getCentroid(std::vector<pcl::PointInd
     return clusterCentroids;
 } 
 
-pcl::PointXYZI ObstacleTrack::LPF_pos(std::vector<pcl::PointXYZI> centroids, int n)
+pcl::PointXYZI ObstacleTrack::LPF_pos(std::vector<pcl::PointXYZI> centroids)
 {
-    // TODO:
-    // - [ ] change IHGP filter to Bilateral Filter for position
+    pcl::PointXYZI centroid_lpf;
+    centroid_lpf.x = (lpf_tau/(lpf_tau+dt_gp))*centroids[data_length-2].x + (dt_gp/(lpf_tau+dt_gp))*centroids[data_length-1].x;
+    centroid_lpf.y = (lpf_tau/(lpf_tau+dt_gp))*centroids[data_length-2].y + (dt_gp/(lpf_tau+dt_gp))*centroids[data_length-1].y;
+    centroid_lpf.z = 0;
+    centroid_lpf.intensity = centroids[data_length-1].intensity;
 
-    return centroids[data_length-1];
+    return centroid_lpf;
 }
 
 pcl::PointXYZI ObstacleTrack::IHGP_fixed_pos(std::vector<pcl::PointXYZI> centroids, int n)

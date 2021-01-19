@@ -420,6 +420,27 @@ void ObstacleTrack::publishMarkers(std::vector<std::vector<pcl::PointXYZI>> pos_
     marker_pub.publish(obstacleMarkers);
 }
 
+/*
+void temp()
+{
+    tf::StampedTransform transform;
+    try
+    {
+        listener.lookupTransform(input->header.frame_id, "/map", ros::Time(0), transform);
+    } 
+    catch (tf::TransformException &ex) 
+    {
+        ROS_ERROR("%s",ex.what());
+        ros::Duration(1.0).sleep();
+        continue;
+    }
+
+    sensor_msgs::PointCloud2ConstPtr& input_converted;
+    transform.getOrigin().x();
+    transform.getOrigin().y();
+
+} */
+
 std::vector<pcl::PointXYZI> ObstacleTrack::clusterPointCloud(const sensor_msgs::PointCloud2ConstPtr& input)
 {
     // Process the point cloud 

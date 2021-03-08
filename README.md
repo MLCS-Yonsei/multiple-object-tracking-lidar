@@ -1,4 +1,4 @@
-# Multiple objects detection, tracking and classification from LIDAR scans/point-clouds (Changed to Class form)
+# Multiple objects detection, tracking and classification from LIDAR scans/point-clouds (Changed to OOP)
 
 [![DOI](https://zenodo.org/badge/47581608.svg)](https://zenodo.org/badge/latestdoi/47581608)
 

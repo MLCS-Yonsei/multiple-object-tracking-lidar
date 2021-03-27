@@ -15,17 +15,36 @@ PCL based ROS package to Detect/Cluster --> Track --> Classify static and dynami
 
 ### Usage:
 
-Before usage, You have to run SLAM first (**/map, /scan_matched_points2** topics)
+#### Installation
 
 Follow the steps below to use this (`multiple_object_tracking_lidar`) package:
+
 ``` bash
 cd ~/catkin_ws/src
 git clone https://github.com/MLCS-Yonsei/multiple-object-tracking-lidar.git -b gp
 cd ..
 catkin_make --only-pkg-with-deps multiple_object_tracking_lidar
-source ~/catkin_ws/devel/setup.bash
-roslaunch multiple_object_tracking_lidar simTracker.launch
 ```
+
+#### Run
+
+##### 1. Run Demo rosbag file
+
+terminal 1,2,3 mean "open new terminal and run this command"
+
+``` bash
+(terminal 1)$ roscore
+(terminal 2)$ rosbag play ${HOME}/catkin_ws/src/multiple-object-tracking-lidar/bag/gazebo_sim_01.bag -r 1.0
+```
+
+##### 2. Run tracker node
+
+``` bash
+(terminal 3)$ roslaunch multiple-object-tracking-lidar simTracker.launch
+```
+
+you can change some tracking configuration on launch file.
+
 
 ### Supported point-cloud streams/sources:
 The input point-clouds can be from:
